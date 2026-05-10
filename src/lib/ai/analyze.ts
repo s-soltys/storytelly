@@ -22,6 +22,7 @@ export async function analyzeSong(args: {
   const ctx = await loadSongContext({
     worldId: args.worldId,
     storyId: args.storyId,
+    lengthSeconds: song.lengthSeconds || undefined,
     lyrics: song.lyrics || undefined,
   });
 
@@ -46,7 +47,7 @@ export async function analyzeSong(args: {
     messages,
   });
 
-  const { subtitles, sections } = parseAnalysisResponse(result.text);
+  const { subtitles, sections } = parseAnalysisResponse(result.text, song.lengthSeconds || 0);
 
   await db
     .update(storySongs)
@@ -82,12 +83,13 @@ async function buildAnalysisMessages(
     "}",
     "",
     "CRITICAL RULES:",
-    "1. COVER THE ENTIRE TIMELINE: The sections MUST collectively cover the entire duration of the song, starting at 0 and ending at the total length of the song.",
+    "1. COVER THE ENTIRE TIMELINE: The sections MUST collectively cover the entire duration of the song, starting at 0 and ending EXACTLY at the song's total length.",
     "2. NO GAPS: Ensure there are no gaps between sections. Minimal overlap is allowed.",
-    "3. RICH IDEAS: Generate at least 3-5 distinct visual clip ideas for EVERY section to provide plenty of creative options.",
-    "4. CONTEXT: Use the provided World, Story, Character, and Location context to make the analysis grounded and specific.",
-    "5. LOGICAL SECTIONS: Identify different stylistic and textual sections of the song (e.g., transitions between Verse, Chorus, Bridge, or significant changes in musical mood and lyrical themes). The sections should reflect the song's natural structure rather than fixed durations.",
-    "6. FORMAT: Return ONLY the raw JSON object. No commentary or markdown code blocks.",
+    "3. NEVER EXCEED LENGTH: No section should ever end after the song's total duration.",
+    "4. RICH IDEAS: Generate at least 3-5 distinct visual clip ideas for EVERY section.",
+    "5. CONTEXT: Use the provided World, Story, Character, and Location context.",
+    "6. LOGICAL SECTIONS: Identify stylistic/textual sections (Verse, Chorus, etc.) based on natural musical shifts.",
+    "7. FORMAT: Return ONLY the raw JSON object. No commentary.",
   ].join("\n");
 
   const parts: ChatPart[] = [
@@ -103,7 +105,7 @@ async function buildAnalysisMessages(
         ctx.world.description,
         "",
         `# STORY: ${ctx.story.name}`,
-        `Total Length: ${ctx.story.lengthSeconds} seconds`,
+        `TOTAL SONG DURATION: ${ctx.story.lengthSeconds} seconds`,
         ctx.story.description,
         "",
         "# CHARACTERS",
@@ -115,7 +117,7 @@ async function buildAnalysisMessages(
         "# LYRICS (Reference)",
         ctx.story.lyrics || "No fixed lyrics provided.",
         "",
-        "Analyze the song now. Ensure the entire timeline from 0 to " + ctx.story.lengthSeconds + "s is covered.",
+        `Analyze the song now. The timeline MUST cover exactly 0s to ${ctx.story.lengthSeconds}s.`,
       ].join("\n"),
     },
   ];
@@ -134,22 +136,20 @@ async function buildAnalysisMessages(
   ];
 }
 
-function parseAnalysisResponse(text: string): {
+function parseAnalysisResponse(text: string, totalLength: number): {
   subtitles: string;
   sections: SongSection[];
 } {
   let jsonText = text.trim();
-  // Strip markdown code blocks if present
   if (jsonText.includes("```")) {
     const match = jsonText.match(/```(?:json)?([\s\S]*?)```/);
     if (match) jsonText = match[1].trim();
   }
 
-  // Find the first { and last } to be safe
   const start = jsonText.indexOf("{");
   const end = jsonText.lastIndexOf("}");
   if (start === -1 || end === -1) {
-    throw new Error("AI failed to return a valid JSON object. Please try again.");
+    throw new Error("AI failed to return a valid JSON object.");
   }
   jsonText = jsonText.slice(start, end + 1);
 
@@ -158,6 +158,7 @@ function parseAnalysisResponse(text: string): {
     if (typeof data.subtitles !== "string" || !Array.isArray(data.sections)) {
       throw new Error("AI response missing required JSON fields.");
     }
+    
     return {
       subtitles: data.subtitles,
       sections: data.sections as SongSection[],

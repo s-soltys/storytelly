@@ -53,6 +53,11 @@ src/
 - Image responses must include **presigned GET URLs** (1h TTL) — the bucket is private. Use `loadImages(ownerKind, ownerId)`.
 - Client always goes through the `api` helper in `@/lib/api` so error parsing is consistent.
 
+### AI Agent Principles
+- **Instruction over Correction**: Trust the AI's ability to follow complex instructions. Do NOT use brittle code to "clamp", "fix", or "correct" AI outputs (e.g., hard-coding timeline logic to fix AI duration errors). Instead, refine the prompt and let the model own the output quality. Brittle post-processing code hides prompt weaknesses and complicates maintenance.
+- **Structured Data**: Prefer single consolidated JSON objects for complex multi-modal tasks to ensure high reliability across different model tiers.
+- **Elision for Logs**: Always elide large binary data (Base64 images/audio) before saving AI prompts to the database logs.
+
 ### Schema changes
 1. Edit `src/db/schema.ts`.
 2. `npm run db:generate` — produces a new file in `src/db/migrations/`. **Commit it.**
