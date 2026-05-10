@@ -1,9 +1,8 @@
-"use client";
+import { redirect } from "next/navigation";
 
-import { useParams } from "next/navigation";
-import { NewNamedEntityForm } from "@/components/forms/NamedEntityForms";
+type Props = { params: Promise<{ worldId: string }> };
 
-export default function NewCharacterPage() {
-  const { worldId } = useParams<{ worldId: string }>();
-  return <NewNamedEntityForm kind="character" worldId={worldId} />;
+export default async function NewCharacterPage({ params }: Props) {
+  const { worldId } = await params;
+  redirect(`/worlds/${worldId}`);
 }
