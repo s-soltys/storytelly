@@ -1,7 +1,7 @@
 export const TASK_DEFAULTS = {
-  lyrics: "google/gemini-2.0-pro-exp-02-05:free",
+  lyrics: "google/gemini-2.0-flash-001",
   song: "google/lyria-3-pro-preview",
-  analyze_song: "google/gemini-2.0-flash-001",
+  analyze_song: "google/gemini-2.0-pro-exp-02-05",
 } as const;
 
 export type AiTask = keyof typeof TASK_DEFAULTS;
