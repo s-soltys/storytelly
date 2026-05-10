@@ -78,6 +78,23 @@ export type StoryDto = {
   moodImages?: ImageDto[];
 };
 
+export type StorySongDto = {
+  id: string;
+  storyId: string;
+  name: string;
+  source: "generated" | "uploaded";
+  url: string;
+  s3Key: string;
+  mimeType: string;
+  sizeBytes: number | null;
+  model: string | null;
+  transcript: string | null;
+  costUsd: string | null;
+  selected: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type SettingsDto = {
   openrouterApiKeyMasked: string | null;
   openrouterApiKeyConfigured: boolean;

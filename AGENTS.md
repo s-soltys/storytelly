@@ -6,7 +6,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 # Storytelly — agent guide
 
-App for managing **worlds**, **characters**, **locations**, **stories**, and one editable lyrics draft per story for AI-generated music videos. Lyrics generation is in scope via OpenRouter; broader music/video generation, per-world model selection, and cost tracking remain future work.
+App for managing **worlds**, **characters**, **locations**, **stories**, one editable lyrics draft per story, and MP3 songs/storyboards for AI-generated music videos. Lyrics and song generation are in scope via OpenRouter; broader video generation, per-world model selection, and cost tracking remain future work.
 
 ## Stack — what to reach for
 
@@ -66,10 +66,18 @@ src/
 - Use plain `<img src={presignedUrl}>` — **don't use `next/image` for presigned URLs**, the cache outlives the signature.
 - Owners must exist before uploading: forms create the entity first, then route to a page that mounts `<ImageUploader>`.
 
+### Songs
+- Store song metadata in `story_songs`; MP3 bytes go to S3/MinIO under `stories/{storyId}/songs/...`.
+- Song responses include presigned GET URLs because the bucket is private. Use a plain HTML `<audio controls>` player.
+- Songs are either `generated` by OpenRouter Lyria or `uploaded` by the user. Only MP3 uploads are supported.
+- A story may have many songs, but only one should be selected at a time. Selecting a song clears the previous selection in the API transaction.
+- The storyboard page is tied to the selected song and currently shows the selected MP3 player plus a TODO workspace below it.
+
 ### Naming rules (business)
 - Character and location `name` is **immutable after creation** and **unique per world**. PATCH zod schemas omit `name` deliberately — keep it that way.
 - Story length: integer seconds, multiple of 15, between 30 and 180 inclusive. Enforced by Postgres CHECK constraint *and* zod.
 - Stories have editable `name`, `description`, parameter selections, and `lyrics`; existing stories autosave these fields inline. Lyrics are one-per-story and may be generated or manually edited.
+- Story songs are generated from all parent datapoints: world fields, selected characters/locations, story name/description/length, lyrics, and available references.
 
 ### Styling
 - Use the CSS variables defined in [src/app/globals.css](src/app/globals.css): `--color-bg`, `--color-surface`, `--color-fg`, `--color-accent` (magenta), etc. Don't introduce new colors casually.
@@ -79,6 +87,7 @@ src/
 - Inline editable fields should blend into the surrounding layout: use low-contrast backgrounds/borders by default, visible focus/hover states, and compact status text for autosave. Avoid large bordered form cards unless creating a brand-new entity.
 - Do not create separate edit views for worlds, characters, locations, or stories when the entity already exists. Display and editing happen in the same view; changes autosave after short debounce where the record already exists.
 - AI-generated lyrics are destructive replacement of the story's single `lyrics` field. Confirm before regenerating when lyrics already exist, then allow manual edits to autosave like any other story field.
+- Song generation creates a new song row and does not replace uploaded/generated songs. Keep song management compact, with generate/upload controls above a list of audio players.
 - Keep repeated lists compact. Use small row/card padding, short section headers, and image thumbnails that support scanning instead of dominating the page.
 - Preserve immutable-field rules visually. Character/location names are locked after creation; show them as locked/read-only rather than adding name PATCH support.
 
@@ -107,6 +116,6 @@ Verify your change builds before reporting done: `npm run typecheck && npm run b
 
 ## Future scope (don't build yet, but design with it in mind)
 
-- AI music / scene / video generation beyond lyrics, likely via OpenRouter.
+- Scene / video generation beyond songs, likely via OpenRouter.
 - Per-world model selection.
 - Cost tracking per world and per story (will need an `ai_calls` table joined on `worlds`/`stories`).

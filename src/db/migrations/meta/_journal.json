@@ -22,6 +22,20 @@
       "when": 1778449421806,
       "tag": "0002_tearful_komodo",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1778449767830,
+      "tag": "0003_spooky_switch",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1778450435842,
+      "tag": "0004_sharp_night_nurse",
+      "breakpoints": true
     }
   ]
 }

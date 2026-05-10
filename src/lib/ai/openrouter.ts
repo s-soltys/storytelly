@@ -21,6 +21,13 @@ export type OpenRouterResult = {
   usage: OpenRouterUsage;
 };
 
+export type OpenRouterAudioResult = {
+  audio: Buffer;
+  transcript: string;
+  usage: OpenRouterUsage;
+  generationId: string | null;
+};
+
 const ENDPOINT = "https://openrouter.ai/api/v1/chat/completions";
 
 export async function callOpenRouter(args: {
@@ -74,6 +81,97 @@ export async function callOpenRouter(args: {
   }
 
   return { text, usage: extractUsage(data) };
+}
+
+export async function callOpenRouterAudio(args: {
+  apiKey: string;
+  model: string;
+  messages: ChatMessage[];
+  format: "mp3" | "wav" | "flac" | "opus";
+  signal?: AbortSignal;
+}): Promise<OpenRouterAudioResult> {
+  const res = await fetch(ENDPOINT, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${args.apiKey}`,
+      "X-Title": "Storytelly",
+    },
+    body: JSON.stringify({
+      model: args.model,
+      messages: args.messages,
+      modalities: ["text", "audio"],
+      audio: { format: args.format },
+      stream: true,
+      usage: { include: true },
+    }),
+    signal: args.signal,
+  });
+
+  if (!res.ok) {
+    const raw = await res.text().catch(() => "");
+    throw new OpenRouterError(
+      `OpenRouter ${res.status}: ${raw.slice(0, 600)}`,
+      res.status,
+      raw,
+    );
+  }
+  if (!res.body) {
+    throw new OpenRouterError("OpenRouter returned no audio stream", res.status, "");
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffered = "";
+  let transcript = "";
+  const audioChunks: string[] = [];
+  let usage: OpenRouterUsage = {
+    promptTokens: null,
+    completionTokens: null,
+    costUsd: null,
+  };
+
+  function handleEvent(raw: string) {
+    const lines = raw
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).trim());
+    for (const line of lines) {
+      if (!line || line === "[DONE]") continue;
+      const parsed = JSON.parse(line) as {
+        choices?: Array<{ delta?: { audio?: { data?: string; transcript?: string } } }>;
+        usage?: Record<string, unknown>;
+      };
+      const audio = parsed.choices?.[0]?.delta?.audio;
+      if (audio?.data) audioChunks.push(audio.data);
+      if (audio?.transcript) transcript += audio.transcript;
+      if (parsed.usage) usage = extractUsage(parsed);
+    }
+  }
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffered += decoder.decode(value, { stream: true });
+    const events = buffered.split("\n\n");
+    buffered = events.pop() ?? "";
+    for (const event of events) handleEvent(event);
+  }
+  buffered += decoder.decode();
+  if (buffered.trim()) handleEvent(buffered);
+
+  const audio = Buffer.from(audioChunks.join(""), "base64");
+  if (audio.length === 0) {
+    throw new OpenRouterError("OpenRouter response missing audio content", res.status, "");
+  }
+
+  return {
+    audio,
+    transcript,
+    usage,
+    generationId: res.headers.get("x-generation-id"),
+  };
 }
 
 export class OpenRouterError extends Error {

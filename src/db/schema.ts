@@ -1,10 +1,11 @@
 import { sql } from "drizzle-orm";
 import {
   check,
+  boolean,
   index,
   integer,
-  jsonb,
   numeric,
+  jsonb,
   pgTable,
   primaryKey,
   text,
@@ -142,24 +143,26 @@ export const settings = pgTable("settings", {
   ...timestamps,
 });
 
-export const storyScripts = pgTable(
-  "story_scripts",
+export const storySongs = pgTable(
+  "story_songs",
   {
     id: uuid("id").primaryKey().defaultRandom(),
     storyId: uuid("story_id")
       .notNull()
       .references(() => stories.id, { onDelete: "cascade" }),
-    model: text("model").notNull(),
-    prompt: text("prompt").notNull(),
-    script: text("script").notNull(),
-    tokensIn: integer("tokens_in"),
-    tokensOut: integer("tokens_out"),
+    name: text("name").notNull(),
+    source: text("source", { enum: ["generated", "uploaded"] }).notNull(),
+    s3Key: text("s3_key").notNull(),
+    mimeType: text("mime_type").notNull().default("audio/mpeg"),
+    sizeBytes: integer("size_bytes"),
+    model: text("model"),
+    prompt: text("prompt"),
+    transcript: text("transcript"),
     costUsd: numeric("cost_usd", { precision: 10, scale: 6 }),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .defaultNow()
-      .notNull(),
+    selected: boolean("selected").notNull().default(false),
+    ...timestamps,
   },
-  (t) => [index("story_scripts_story_idx").on(t.storyId, t.createdAt.desc())],
+  (t) => [index("story_songs_story_idx").on(t.storyId, t.createdAt.desc())],
 );
 
 export type World = typeof worlds.$inferSelect;
@@ -169,4 +172,4 @@ export type Location = typeof locations.$inferSelect;
 export type Story = typeof stories.$inferSelect;
 export type Image = typeof images.$inferSelect;
 export type Settings = typeof settings.$inferSelect;
-export type StoryScript = typeof storyScripts.$inferSelect;
+export type StorySong = typeof storySongs.$inferSelect;

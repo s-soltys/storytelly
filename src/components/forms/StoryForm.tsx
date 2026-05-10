@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Input, Textarea } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ImageUploader } from "@/components/ImageUploader";
+import { StorySongsPanel } from "@/components/StorySongsPanel";
 import { ArrowLeft, ImageIcon, Music, RotateCw, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -604,6 +605,9 @@ export function StoryForm(props: Mode) {
         )}
       </div>
 
+      {props.kind === "edit" && existing.data && (
+        <StorySongsPanel worldId={worldId} storyId={props.storyId} />
+      )}
     </div>
   );
 }
