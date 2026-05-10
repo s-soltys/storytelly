@@ -83,13 +83,13 @@ async function buildAnalysisMessages(
     "}",
     "",
     "CRITICAL RULES:",
-    "1. COVER THE ENTIRE TIMELINE: The sections MUST collectively cover the entire duration of the song, starting at 0 and ending EXACTLY at the song's total length.",
-    "2. NO GAPS: Ensure there are no gaps between sections. Minimal overlap is allowed.",
-    "3. NEVER EXCEED LENGTH: No section should ever end after the song's total duration.",
-    "4. RICH IDEAS: Generate at least 3-5 distinct visual clip ideas for EVERY section.",
-    "5. CONTEXT: Use the provided World, Story, Character, and Location context.",
-    "6. LOGICAL SECTIONS: Identify stylistic/textual sections (Verse, Chorus, etc.) based on natural musical shifts.",
-    "7. FORMAT: Return ONLY the raw JSON object. No commentary.",
+    "1. MATHEMATICAL CONTINUITY: The storyboard is a perfect sequence. The startSeconds of the first section must be 0. For every subsequent section, its startSeconds MUST be exactly equal to the endSeconds of the section preceding it.",
+    "2. EXACT ENDING: The endSeconds of the VERY LAST section in the array MUST be exactly equal to the provided TOTAL SONG DURATION. You must not stop early.",
+    "3. FULL COVERAGE: There must be zero gaps in the timeline from 0s to the end of the song.",
+    "4. RICH IDEAS: Generate at least 3-5 distinct visual clip ideas for EVERY section to provide plenty of creative options.",
+    "5. CONTEXT: Use the provided World, Story, Character, and Location context to make the analysis grounded.",
+    "6. LOGICAL SECTIONS: Divide the song based on stylistic and textual shifts (e.g., Verse, Chorus, Bridge) rather than arbitrary fixed durations.",
+    "7. FORMAT: Return ONLY the raw JSON object. No commentary or markdown code blocks.",
   ].join("\n");
 
   const parts: ChatPart[] = [
