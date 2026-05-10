@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   api,
@@ -15,15 +14,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ImageUploader } from "@/components/ImageUploader";
 import { ArrowLeft, ImageIcon, Pencil, Plus, Trash2 } from "lucide-react";
-import { cn } from "@/lib/utils";
-
-type Tab = "characters" | "locations" | "stories";
 
 export default function WorldPage() {
   const { worldId } = useParams<{ worldId: string }>();
   const router = useRouter();
   const qc = useQueryClient();
-  const [tab, setTab] = useState<Tab>("characters");
 
   const world = useQuery({
     queryKey: ["world", worldId],
@@ -116,117 +111,62 @@ export default function WorldPage() {
         </CardContent>
       </Card>
 
-      <div>
-        <div className="flex items-center justify-between border-b border-[var(--color-border)]">
-          <div className="flex">
-            <TabBtn active={tab === "characters"} onClick={() => setTab("characters")}>
-              Characters {chars.data ? `(${chars.data.length})` : ""}
-            </TabBtn>
-            <TabBtn active={tab === "locations"} onClick={() => setTab("locations")}>
-              Locations {locs.data ? `(${locs.data.length})` : ""}
-            </TabBtn>
-            <TabBtn active={tab === "stories"} onClick={() => setTab("stories")}>
-              Stories {stories.data ? `(${stories.data.length})` : ""}
-            </TabBtn>
-          </div>
-          {tab === "characters" && (
-            <Button asChild size="sm">
-              <Link href={`/worlds/${worldId}/characters/new`}>
-                <Plus className="h-4 w-4" /> Character
-              </Link>
-            </Button>
-          )}
-          {tab === "locations" && (
-            <Button asChild size="sm">
-              <Link href={`/worlds/${worldId}/locations/new`}>
-                <Plus className="h-4 w-4" /> Location
-              </Link>
-            </Button>
-          )}
-          {tab === "stories" && (
-            <Button asChild size="sm">
-              <Link href={`/worlds/${worldId}/stories/new`}>
-                <Plus className="h-4 w-4" /> Story
-              </Link>
-            </Button>
-          )}
-        </div>
-
-        <div className="pt-6">
-          {tab === "characters" && (
-            <EntityGrid
-              loading={chars.isLoading}
-              empty="No characters yet."
-              items={chars.data?.map((c) => ({
-                id: c.id,
-                href: `/worlds/${worldId}/characters/${c.id}`,
-                title: c.name,
-                description: c.description,
-                images: c.images,
-                warning:
-                  !c.images || c.images.length === 0
-                    ? "Needs at least 1 image"
-                    : undefined,
-              }))}
-            />
-          )}
-          {tab === "locations" && (
-            <EntityGrid
-              loading={locs.isLoading}
-              empty="No locations yet."
-              items={locs.data?.map((l) => ({
-                id: l.id,
-                href: `/worlds/${worldId}/locations/${l.id}`,
-                title: l.name,
-                description: l.description,
-                images: l.images,
-              }))}
-            />
-          )}
-          {tab === "stories" && (
-            <EntityGrid
-              loading={stories.isLoading}
-              empty="No stories yet."
-              items={stories.data?.map((s) => ({
-                id: s.id,
-                href: `/worlds/${worldId}/stories/${s.id}`,
-                title: `${s.lengthSeconds}s story`,
-                description: s.description,
-                images: s.moodImages,
-              }))}
-            />
-          )}
-        </div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <Section
+          title="Characters"
+          count={chars.data?.length}
+          loading={chars.isLoading}
+          empty="No characters yet."
+          newHref={`/worlds/${worldId}/characters/new`}
+          newLabel="Character"
+          items={chars.data?.map((c) => ({
+            id: c.id,
+            href: `/worlds/${worldId}/characters/${c.id}`,
+            title: c.name,
+            description: c.description,
+            images: c.images,
+            warning:
+              !c.images || c.images.length === 0
+                ? "Needs at least 1 image"
+                : undefined,
+          }))}
+        />
+        <Section
+          title="Locations"
+          count={locs.data?.length}
+          loading={locs.isLoading}
+          empty="No locations yet."
+          newHref={`/worlds/${worldId}/locations/new`}
+          newLabel="Location"
+          items={locs.data?.map((l) => ({
+            id: l.id,
+            href: `/worlds/${worldId}/locations/${l.id}`,
+            title: l.name,
+            description: l.description,
+            images: l.images,
+          }))}
+        />
+        <Section
+          title="Stories"
+          count={stories.data?.length}
+          loading={stories.isLoading}
+          empty="No stories yet."
+          newHref={`/worlds/${worldId}/stories/new`}
+          newLabel="Story"
+          items={stories.data?.map((s) => ({
+            id: s.id,
+            href: `/worlds/${worldId}/stories/${s.id}`,
+            title: `${s.lengthSeconds}s story`,
+            description: s.description,
+            images: s.moodImages,
+          }))}
+        />
       </div>
     </div>
   );
 }
 
-function TabBtn({
-  active,
-  children,
-  onClick,
-}: {
-  active: boolean;
-  children: React.ReactNode;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={cn(
-        "px-4 py-2 text-sm font-mono uppercase tracking-wider border-b-2 -mb-px transition cursor-pointer",
-        active
-          ? "border-[var(--color-accent)] text-[var(--color-accent)]"
-          : "border-transparent text-[var(--color-muted)] hover:text-[var(--color-fg)]",
-      )}
-    >
-      {children}
-    </button>
-  );
-}
-
-type EntityItem = {
+type SectionItem = {
   id: string;
   href: string;
   title: string;
@@ -235,55 +175,83 @@ type EntityItem = {
   warning?: string;
 };
 
-function EntityGrid({
+function Section({
+  title,
+  count,
   loading,
   empty,
+  newHref,
+  newLabel,
   items,
 }: {
+  title: string;
+  count?: number;
   loading: boolean;
   empty: string;
-  items?: EntityItem[];
+  newHref: string;
+  newLabel: string;
+  items?: SectionItem[];
 }) {
-  if (loading) return <p className="text-[var(--color-muted)]">Loading…</p>;
-  if (!items || items.length === 0)
-    return <p className="text-[var(--color-muted)] text-sm">{empty}</p>;
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-      {items.map((item) => (
-        <Link key={item.id} href={item.href} className="group">
-          <Card className="h-full overflow-hidden transition group-hover:border-[var(--color-accent)]">
+    <section className="flex flex-col gap-3 min-w-0">
+      <header className="flex items-center justify-between border-b border-[var(--color-border)] pb-2">
+        <h2 className="font-mono text-sm uppercase tracking-widest">
+          {title}
+          {typeof count === "number" && (
+            <span className="ml-2 text-[var(--color-muted)]">{count}</span>
+          )}
+        </h2>
+        <Button asChild size="sm" variant="secondary">
+          <Link href={newHref}>
+            <Plus className="h-4 w-4" /> {newLabel}
+          </Link>
+        </Button>
+      </header>
+      <div className="flex flex-col gap-3">
+        {loading ? (
+          <p className="text-[var(--color-muted)] text-sm">Loading…</p>
+        ) : !items || items.length === 0 ? (
+          <p className="text-[var(--color-muted)] text-sm">{empty}</p>
+        ) : (
+          items.map((item) => <SectionCard key={item.id} item={item} />)
+        )}
+      </div>
+    </section>
+  );
+}
+
+function SectionCard({ item }: { item: SectionItem }) {
+  return (
+    <Link href={item.href} className="group block">
+      <Card className="overflow-hidden transition group-hover:border-[var(--color-accent)] py-0">
+        <div className="flex">
+          <div className="w-20 shrink-0 aspect-square bg-[var(--color-surface-2)] overflow-hidden flex items-center justify-center">
             {item.images && item.images[0] ? (
-              <div className="aspect-video w-full overflow-hidden bg-[var(--color-surface-2)]">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={item.images[0].url}
-                  alt=""
-                  className="h-full w-full object-cover transition group-hover:scale-105"
-                />
-              </div>
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={item.images[0].url}
+                alt=""
+                className="h-full w-full object-cover transition group-hover:scale-105"
+              />
             ) : (
-              <div className="aspect-video w-full bg-[var(--color-surface-2)] flex items-center justify-center text-[var(--color-muted)]">
-                <ImageIcon className="h-8 w-8" />
-              </div>
+              <ImageIcon className="h-5 w-5 text-[var(--color-muted)]" />
             )}
-            <CardHeader>
-              <CardTitle className="text-base group-hover:text-[var(--color-accent)] transition-colors">
-                {item.title}
-              </CardTitle>
-              {item.warning && (
-                <p className="text-xs text-[var(--color-danger)]">
-                  {item.warning}
-                </p>
-              )}
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-[var(--color-fg)]/80 line-clamp-3">
-                {item.description}
+          </div>
+          <div className="flex-1 min-w-0 p-3">
+            <p className="font-mono text-xs uppercase tracking-wider truncate group-hover:text-[var(--color-accent)] transition-colors">
+              {item.title}
+            </p>
+            {item.warning && (
+              <p className="text-[10px] text-[var(--color-danger)] mt-0.5">
+                {item.warning}
               </p>
-            </CardContent>
-          </Card>
-        </Link>
-      ))}
-    </div>
+            )}
+            <p className="text-xs text-[var(--color-fg)]/70 mt-1 line-clamp-2">
+              {item.description}
+            </p>
+          </div>
+        </div>
+      </Card>
+    </Link>
   );
 }

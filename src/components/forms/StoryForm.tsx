@@ -22,6 +22,7 @@ import { Textarea } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ImageUploader } from "@/components/ImageUploader";
+import { SongScriptsPanel } from "@/components/SongScriptsPanel";
 import { ArrowLeft, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -270,18 +271,22 @@ export function StoryForm(props: Mode) {
       </Card>
 
       {props.kind === "edit" && existing.data && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Mood images</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ImageUploader
-              ownerKind="story_mood"
-              ownerId={props.storyId}
-              initial={existing.data.moodImages ?? []}
-            />
-          </CardContent>
-        </Card>
+        <>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Mood images</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ImageUploader
+                ownerKind="story_mood"
+                ownerId={props.storyId}
+                initial={existing.data.moodImages ?? []}
+              />
+            </CardContent>
+          </Card>
+
+          <SongScriptsPanel worldId={worldId} storyId={props.storyId} />
+        </>
       )}
     </div>
   );

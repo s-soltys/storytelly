@@ -12,6 +12,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Plus } from "lucide-react";
+import { SettingsPanel } from "@/components/SettingsPanel";
 
 export default function HomePage() {
   const { data, isLoading, error } = useQuery({
@@ -21,6 +22,8 @@ export default function HomePage() {
 
   return (
     <div className="space-y-6">
+      <SettingsPanel />
+
       <div className="flex items-end justify-between">
         <div>
           <h1 className="font-mono text-3xl uppercase tracking-widest">

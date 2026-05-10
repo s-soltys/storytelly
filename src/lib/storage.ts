@@ -55,3 +55,11 @@ export async function presignedGetUrl(
 export async function deleteObject(key: string): Promise<void> {
   await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
 }
+
+export async function getObjectBuffer(key: string): Promise<Uint8Array> {
+  const res = await s3.send(
+    new GetObjectCommand({ Bucket: bucket, Key: key }),
+  );
+  if (!res.Body) throw new Error(`S3 object has no body: ${key}`);
+  return res.Body.transformToByteArray();
+}

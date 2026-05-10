@@ -46,7 +46,16 @@ export const imageOwnerKindSchema = z.enum([
   "story_mood",
 ]);
 
+export const settingsUpdateSchema = z.object({
+  // null = clear; undefined = leave alone; string = set new value.
+  openrouterApiKey: z
+    .union([z.string().trim().min(1).max(400), z.null()])
+    .optional(),
+  taskModels: z.record(z.string().trim().min(1), z.string().trim().min(1)).optional(),
+});
+
 export type WorldCreate = z.infer<typeof worldCreateSchema>;
 export type CharacterCreate = z.infer<typeof characterCreateSchema>;
 export type LocationCreate = z.infer<typeof locationCreateSchema>;
 export type StoryCreate = z.infer<typeof storyCreateSchema>;
+export type SettingsUpdate = z.infer<typeof settingsUpdateSchema>;

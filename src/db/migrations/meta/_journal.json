@@ -8,6 +8,13 @@
       "when": 1778424663949,
       "tag": "0000_loose_the_call",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1778427627273,
+      "tag": "0001_bitter_devos",
+      "breakpoints": true
     }
   ]
 }

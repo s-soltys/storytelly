@@ -3,6 +3,8 @@ import {
   check,
   index,
   integer,
+  jsonb,
+  numeric,
   pgTable,
   primaryKey,
   text,
@@ -128,9 +130,41 @@ export const images = pgTable(
   (t) => [index("images_owner_idx").on(t.ownerKind, t.ownerId)],
 );
 
+export const settings = pgTable("settings", {
+  id: integer("id").primaryKey().default(1),
+  openrouterApiKey: text("openrouter_api_key"),
+  taskModels: jsonb("task_models")
+    .$type<Record<string, string>>()
+    .notNull()
+    .default({}),
+  ...timestamps,
+});
+
+export const storyScripts = pgTable(
+  "story_scripts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    storyId: uuid("story_id")
+      .notNull()
+      .references(() => stories.id, { onDelete: "cascade" }),
+    model: text("model").notNull(),
+    prompt: text("prompt").notNull(),
+    script: text("script").notNull(),
+    tokensIn: integer("tokens_in"),
+    tokensOut: integer("tokens_out"),
+    costUsd: numeric("cost_usd", { precision: 10, scale: 6 }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [index("story_scripts_story_idx").on(t.storyId, t.createdAt.desc())],
+);
+
 export type World = typeof worlds.$inferSelect;
 export type NewWorld = typeof worlds.$inferInsert;
 export type Character = typeof characters.$inferSelect;
 export type Location = typeof locations.$inferSelect;
 export type Story = typeof stories.$inferSelect;
 export type Image = typeof images.$inferSelect;
+export type Settings = typeof settings.$inferSelect;
+export type StoryScript = typeof storyScripts.$inferSelect;

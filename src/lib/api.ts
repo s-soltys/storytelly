@@ -25,6 +25,12 @@ export const api = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     }).then((r) => handle<T>(r)),
+  put: <T>(url: string, body: unknown) =>
+    fetch(url, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }).then((r) => handle<T>(r)),
   del: <T>(url: string) =>
     fetch(url, { method: "DELETE" }).then((r) => handle<T>(r)),
   upload: <T>(url: string, form: FormData) =>
@@ -68,4 +74,22 @@ export type StoryDto = {
   characterIds?: string[];
   locationIds?: string[];
   moodImages?: ImageDto[];
+};
+
+export type SettingsDto = {
+  openrouterApiKeyMasked: string | null;
+  openrouterApiKeyConfigured: boolean;
+  taskModels: Record<string, string>;
+  effectiveTaskModels: Record<string, string>;
+};
+
+export type StoryScriptDto = {
+  id: string;
+  storyId: string;
+  model: string;
+  script: string;
+  tokensIn: number | null;
+  tokensOut: number | null;
+  costUsd: string | null;
+  createdAt: string;
 };
