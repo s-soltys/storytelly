@@ -6,14 +6,14 @@ Manage **worlds**, **characters**, **locations**, and **stories** that will late
 
 ## Quickstart
 
-Prerequisites: **Node 20+**, **pnpm 10+**, and a running **Docker** daemon.
+Prerequisites: **Node 20+**, **npm 11+**, and a running **Docker** daemon.
 
 ```bash
 cp .env.example .env       # local-only credentials, no real secrets
 docker compose up -d       # postgres on :5432, minio on :9000 (api) / :9001 (console)
-pnpm install
-pnpm db:migrate            # apply the committed schema
-pnpm dev                   # http://localhost:3000
+npm install
+npm run db:migrate         # apply the committed schema
+npm run dev                # http://localhost:3000
 ```
 
 The first `docker compose up` also runs a one-shot `minio-init` job that creates the `storytelly` bucket. MinIO console: <http://localhost:9001> · login `storytelly` / `storytelly-secret`.
@@ -43,13 +43,13 @@ Key files: [src/db/schema.ts](src/db/schema.ts), [src/lib/storage.ts](src/lib/st
 
 | | |
 |---|---|
-| Run app | `pnpm dev` |
-| Generate a migration after editing `src/db/schema.ts` | `pnpm db:generate` |
-| Apply migrations | `pnpm db:migrate` |
-| Browse the DB | `pnpm db:studio` |
-| Type-check | `pnpm typecheck` |
-| Lint | `pnpm lint` |
-| Production build | `pnpm build` |
+| Run app | `npm run dev` |
+| Generate a migration after editing `src/db/schema.ts` | `npm run db:generate` |
+| Apply migrations | `npm run db:migrate` |
+| Browse the DB | `npm run db:studio` |
+| Type-check | `npm run typecheck` |
+| Lint | `npm run lint` |
+| Production build | `npm run build` |
 
 ## Switching to AWS S3
 

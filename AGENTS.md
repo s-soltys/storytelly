@@ -18,7 +18,7 @@ App for managing **worlds**, **characters**, **locations**, and **stories** that
 | Forms | `react-hook-form` + `zod`; validators in [src/lib/validation.ts](src/lib/validation.ts) reused on client and server. |
 | DB | Postgres 16 + Drizzle ORM. Schema is a single file: [src/db/schema.ts](src/db/schema.ts). |
 | Storage | `@aws-sdk/client-s3` against MinIO locally; identical code path for AWS S3 in prod. Wrapper: [src/lib/storage.ts](src/lib/storage.ts). |
-| Package manager | **pnpm** — never `npm`/`yarn`. |
+| Package manager | **npm** — never `pnpm`/`yarn`. |
 
 `@/*` resolves to `src/*`.
 
@@ -55,8 +55,8 @@ src/
 
 ### Schema changes
 1. Edit `src/db/schema.ts`.
-2. `pnpm db:generate` — produces a new file in `src/db/migrations/`. **Commit it.**
-3. Apply with `pnpm db:migrate` (prod-style) or `pnpm db:push` (dev-only, prompts).
+2. `npm run db:generate` — produces a new file in `src/db/migrations/`. **Commit it.**
+3. Apply with `npm run db:migrate` (prod-style) or `npm run db:push` (dev-only, prompts).
 4. **Never edit a migration that was already applied** anywhere. Add a new one.
 5. Update [src/lib/validation.ts](src/lib/validation.ts) and [src/lib/api.ts](src/lib/api.ts) DTOs to match.
 
@@ -79,15 +79,15 @@ src/
 
 | Want to… | Run |
 |---|---|
-| Start everything | `docker compose up -d && pnpm dev` |
-| Apply schema | `pnpm db:migrate` (or `pnpm db:push` in dev) |
-| Generate migration | `pnpm db:generate` |
-| Inspect DB | `pnpm db:studio` |
-| Type-check | `pnpm typecheck` |
-| Lint | `pnpm lint` |
-| Production build | `pnpm build` |
+| Start everything | `docker compose up -d && npm run dev` |
+| Apply schema | `npm run db:migrate` (or `npm run db:push` in dev) |
+| Generate migration | `npm run db:generate` |
+| Inspect DB | `npm run db:studio` |
+| Type-check | `npm run typecheck` |
+| Lint | `npm run lint` |
+| Production build | `npm run build` |
 
-Verify your change builds before reporting done: `pnpm typecheck && pnpm build`.
+Verify your change builds before reporting done: `npm run typecheck && npm run build`.
 
 ## Don't
 
