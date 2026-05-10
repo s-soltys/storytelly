@@ -66,11 +66,11 @@ async function buildAnalysisMessages(
   const system = [
     "You are an expert music and video analyst.",
     "Your task is to analyze the provided MP3 audio and generate a storyboard plan.",
-    "You must return two components wrapped in specific XML tags:",
-    "1. <subtitles>...</subtitles> - Standard SRT subtitles for the lyrics.",
-    "2. <sections>...</sections> - A JSON array of song sections.",
+    "You MUST return your response as a SINGLE JSON object with exactly two keys:",
+    "1. \"subtitles\": A string containing standard SRT subtitles for the lyrics.",
+    "2. \"sections\": A JSON array of song sections.",
     "",
-    "Each section in the JSON array must follow this schema:",
+    "Each section in the \"sections\" array must follow this schema:",
     "{",
     "  \"startSeconds\": number,",
     "  \"endSeconds\": number,",
@@ -83,6 +83,7 @@ async function buildAnalysisMessages(
     "",
     "Use the provided World, Story, Character, and Location context to make the analysis grounded and specific.",
     "Sections should generally be between 5 and 30 seconds long.",
+    "Return ONLY the raw JSON object. No commentary or markdown code blocks.",
   ].join("\n");
 
   const parts: ChatPart[] = [
@@ -109,7 +110,7 @@ async function buildAnalysisMessages(
         "# LYRICS (Reference)",
         ctx.story.lyrics || "No fixed lyrics provided.",
         "",
-        "Analyze the song now and return the <subtitles> and <sections> components.",
+        "Analyze the song now and return the JSON object.",
       ].join("\n"),
     },
   ];
@@ -132,24 +133,32 @@ function parseAnalysisResponse(text: string): {
   subtitles: string;
   sections: SongSection[];
 } {
-  const subtitlesMatch = text.match(/<subtitles>([\s\S]*?)<\/subtitles>/);
-  const sectionsMatch = text.match(/<sections>([\s\S]*?)<\/sections>/);
-
-  if (!subtitlesMatch || !sectionsMatch) {
-    // Fallback or error
-    throw new Error("AI failed to return structured analysis. Please try again.");
+  let jsonText = text.trim();
+  // Strip markdown code blocks if present
+  if (jsonText.includes("```")) {
+    const match = jsonText.match(/```(?:json)?([\s\S]*?)```/);
+    if (match) jsonText = match[1].trim();
   }
 
-  const subtitles = subtitlesMatch[1].trim();
-  let sections: SongSection[] = [];
+  // Find the first { and last } to be safe
+  const start = jsonText.indexOf("{");
+  const end = jsonText.lastIndexOf("}");
+  if (start === -1 || end === -1) {
+    throw new Error("AI failed to return a valid JSON object. Please try again.");
+  }
+  jsonText = jsonText.slice(start, end + 1);
+
   try {
-    // Strip possible markdown code blocks inside <sections>
-    const jsonText = sectionsMatch[1].replace(/```json|```/g, "").trim();
-    sections = JSON.parse(jsonText);
-  } catch (e) {
-    console.error("Failed to parse sections JSON", e);
-    throw new Error("AI returned invalid JSON for song sections.");
+    const data = JSON.parse(jsonText);
+    if (typeof data.subtitles !== "string" || !Array.isArray(data.sections)) {
+      throw new Error("AI response missing required JSON fields.");
+    }
+    return {
+      subtitles: data.subtitles,
+      sections: data.sections as SongSection[],
+    };
+  } catch (e: any) {
+    console.error("Failed to parse analysis JSON", e, text);
+    throw new Error(`AI returned invalid JSON: ${e.message}`);
   }
-
-  return { subtitles, sections };
 }
