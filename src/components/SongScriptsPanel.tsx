@@ -54,10 +54,10 @@ export function SongScriptsPanel({
   const items = list.data ?? [];
 
   return (
-    <Card>
-      <CardHeader className="flex-row items-start justify-between space-y-0 gap-4">
+    <Card className="rounded-[var(--radius-control)] py-0">
+      <CardHeader className="flex-row items-start justify-between space-y-0 gap-3 p-3">
         <div>
-          <CardTitle className="text-base flex items-center gap-2">
+          <CardTitle className="flex items-center gap-2 text-sm">
             <Music className="h-4 w-4" /> Song scripts
           </CardTitle>
           {!configured && !settings.isLoading && (
@@ -82,6 +82,7 @@ export function SongScriptsPanel({
           type="button"
           onClick={() => generate.mutate()}
           disabled={!configured || generate.isPending}
+          size="sm"
         >
           {generate.isPending ? (
             <>
@@ -98,7 +99,7 @@ export function SongScriptsPanel({
           )}
         </Button>
       </CardHeader>
-      <CardContent className="space-y-3">
+      <CardContent className="space-y-2.5 p-3 pt-0">
         {generate.error && (
           <p className="text-xs text-[var(--color-danger)]">
             {(generate.error as Error).message}
@@ -108,7 +109,7 @@ export function SongScriptsPanel({
           <p className="text-sm text-[var(--color-muted)]">Loading…</p>
         )}
         {!list.isLoading && items.length === 0 && (
-          <p className="text-sm text-[var(--color-muted)]">
+          <p className="text-xs text-[var(--color-muted)]">
             No scripts yet. Click Generate to draft one.
           </p>
         )}
@@ -144,10 +145,10 @@ function ScriptItem({
   return (
     <div
       className={cn(
-        "rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-surface)] overflow-hidden",
+        "overflow-hidden rounded-[var(--radius-control)] border border-[var(--color-border)] bg-[var(--color-surface)]",
       )}
     >
-      <div className="flex items-center justify-between gap-2 p-3">
+      <div className="flex items-center justify-between gap-2 p-2.5">
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
@@ -173,15 +174,17 @@ function ScriptItem({
         <Button
           type="button"
           variant="ghost"
+          size="icon"
           onClick={onDelete}
           disabled={removing}
           aria-label="Delete script"
+          className="h-8 w-8"
         >
           <Trash2 className="h-4 w-4" />
         </Button>
       </div>
       {open && (
-        <pre className="border-t border-[var(--color-border)] p-4 text-sm font-mono whitespace-pre-wrap break-words max-h-[60vh] overflow-auto">
+        <pre className="max-h-[50vh] overflow-auto border-t border-[var(--color-border)] p-3 text-xs font-mono whitespace-pre-wrap break-words">
           {script.script}
         </pre>
       )}

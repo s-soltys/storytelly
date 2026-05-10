@@ -74,6 +74,11 @@ src/
 - Use the CSS variables defined in [src/app/globals.css](src/app/globals.css): `--color-bg`, `--color-surface`, `--color-fg`, `--color-accent` (magenta), etc. Don't introduce new colors casually.
 - Headings use `font-mono` + `uppercase tracking-widest` — that's the look.
 - Keep dark-only. No theme switcher.
+- Treat entity pages as compact workspaces, not document-style forms. Prefer dense two-column layouts on desktop, narrow left labels, quiet field surfaces, and small side panels for image uploaders.
+- Inline editable fields should blend into the surrounding layout: use low-contrast backgrounds/borders by default, visible focus/hover states, and compact status text for autosave. Avoid large bordered form cards unless creating a brand-new entity.
+- Do not create separate edit views for worlds, characters, locations, or stories when the entity already exists. Display and editing happen in the same view; changes autosave after short debounce where the record already exists.
+- Keep repeated lists compact. Use small row/card padding, short section headers, and image thumbnails that support scanning instead of dominating the page.
+- Preserve immutable-field rules visually. Character/location names are locked after creation; show them as locked/read-only rather than adding name PATCH support.
 
 ## Scripts — what to run when
 

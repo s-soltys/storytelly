@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { Controller, useForm } from "react-hook-form";
+import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -20,15 +20,58 @@ import {
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ImageUploader } from "@/components/ImageUploader";
 import { SongScriptsPanel } from "@/components/SongScriptsPanel";
-import { ArrowLeft, Trash2 } from "lucide-react";
+import { ArrowLeft, ImageIcon, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type Mode =
   | { kind: "create"; worldId: string }
   | { kind: "edit"; worldId: string; storyId: string };
+type SaveState = "idle" | "saving" | "saved" | "error" | "invalid";
+
+const quietField =
+  "border-transparent bg-[var(--color-surface-2)]/35 shadow-none hover:bg-[var(--color-surface-2)]/55 focus:bg-[var(--color-surface)] focus:border-[var(--color-border)]";
+
+function FieldLine({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="grid gap-1.5 sm:grid-cols-[5.25rem_minmax(0,1fr)] sm:items-start">
+      <Label className="pt-2 font-mono text-[10px] uppercase tracking-widest text-[var(--color-muted)]">
+        {label}
+      </Label>
+      <div className="min-w-0">{children}</div>
+    </div>
+  );
+}
+
+function SaveHint({ state }: { state: SaveState }) {
+  if (state === "idle") return null;
+
+  const text = {
+    saving: "Saving…",
+    saved: "Saved.",
+    error: "Could not save. Keep editing or try again.",
+    invalid: "Pick at least one character and keep story text filled in.",
+  }[state];
+
+  return (
+    <p
+      className={
+        state === "error" || state === "invalid"
+          ? "text-xs text-[var(--color-danger)]"
+          : "text-xs text-[var(--color-muted)]"
+      }
+    >
+      {text}
+    </p>
+  );
+}
 
 export function StoryForm(props: Mode) {
   const router = useRouter();
@@ -59,9 +102,9 @@ export function StoryForm(props: Mode) {
   const {
     control,
     register,
+    getValues,
     handleSubmit,
     reset,
-    watch,
     setError,
     formState: { errors, isSubmitting },
   } = useForm<StoryCreate>({
@@ -73,17 +116,29 @@ export function StoryForm(props: Mode) {
       locationIds: [],
     },
   });
+  const [saveState, setSaveState] = useState<SaveState>("idle");
+  const saveTimer = useRef<number | null>(null);
+  const savedValues = useRef<StoryCreate | null>(null);
+  const saveVersion = useRef(0);
 
   useEffect(() => {
     if (props.kind === "edit" && existing.data) {
-      reset({
+      const values = {
         description: existing.data.description,
         lengthSeconds: existing.data.lengthSeconds,
         characterIds: existing.data.characterIds ?? [],
         locationIds: existing.data.locationIds ?? [],
-      });
+      };
+      savedValues.current = values;
+      reset(values);
     }
   }, [existing.data, props.kind, reset]);
+
+  useEffect(() => {
+    return () => {
+      if (saveTimer.current) window.clearTimeout(saveTimer.current);
+    };
+  }, []);
 
   async function onSubmit(values: StoryCreate) {
     try {
@@ -120,22 +175,95 @@ export function StoryForm(props: Mode) {
     },
   });
 
-  const lengthSeconds = watch("lengthSeconds");
+  const lengthSeconds = useWatch({ control, name: "lengthSeconds" });
+  const descriptionField = register("description");
+
+  function sameValues(a: StoryCreate, b: StoryCreate) {
+    return (
+      a.description === b.description &&
+      a.lengthSeconds === b.lengthSeconds &&
+      a.characterIds.length === b.characterIds.length &&
+      a.characterIds.every((id, idx) => id === b.characterIds[idx]) &&
+      (a.locationIds ?? []).length === (b.locationIds ?? []).length &&
+      (a.locationIds ?? []).every((id, idx) => id === (b.locationIds ?? [])[idx])
+    );
+  }
+
+  function scheduleAutoSave(next: StoryCreate) {
+    if (props.kind !== "edit") return;
+    if (saveTimer.current) window.clearTimeout(saveTimer.current);
+
+    const parsed = storyCreateSchema.safeParse(next);
+    if (!parsed.success) {
+      setSaveState("invalid");
+      return;
+    }
+
+    if (savedValues.current && sameValues(savedValues.current, parsed.data)) {
+      setSaveState("idle");
+      return;
+    }
+
+    const version = saveVersion.current + 1;
+    saveVersion.current = version;
+    setSaveState("saving");
+
+    saveTimer.current = window.setTimeout(async () => {
+      try {
+        const updated = await api.patch<StoryDto>(
+          `/api/worlds/${worldId}/stories/${props.storyId}`,
+          parsed.data,
+        );
+        if (saveVersion.current !== version) return;
+
+        savedValues.current = parsed.data;
+        qc.setQueryData(["story", props.storyId], (prev: StoryDto | undefined) =>
+          prev
+            ? {
+                ...prev,
+                ...updated,
+                characterIds: parsed.data.characterIds,
+                locationIds: parsed.data.locationIds ?? [],
+                moodImages: prev.moodImages,
+              }
+            : prev,
+        );
+        qc.setQueryData(["stories", worldId], (prev: StoryDto[] | undefined) =>
+          prev?.map((story) =>
+            story.id === props.storyId
+              ? {
+                  ...story,
+                  description: parsed.data.description,
+                  lengthSeconds: parsed.data.lengthSeconds,
+                  characterIds: parsed.data.characterIds,
+                  locationIds: parsed.data.locationIds ?? [],
+                }
+              : story,
+          ),
+        );
+        setSaveState("saved");
+      } catch (e) {
+        if (saveVersion.current !== version) return;
+        setError("root", { message: (e as Error).message });
+        setSaveState("error");
+      }
+    }, 650);
+  }
 
   if (props.kind === "edit" && !existing.data) {
     return <p className="text-[var(--color-muted)]">Loading…</p>;
   }
 
   return (
-    <div className="max-w-3xl space-y-6">
+    <div className="space-y-5">
       <div>
         <Link
           href={`/worlds/${worldId}`}
-          className="inline-flex items-center gap-1 text-sm text-[var(--color-muted)] hover:text-[var(--color-fg)]"
+          className="inline-flex items-center gap-1 text-xs text-[var(--color-muted)] hover:text-[var(--color-fg)]"
         >
           <ArrowLeft className="h-4 w-4" /> Back to world
         </Link>
-        <div className="mt-2 flex items-start justify-between">
+        <div className="mt-2 flex items-center justify-between gap-3">
           <h1 className="font-mono text-2xl uppercase tracking-widest">
             {props.kind === "create" ? "New story" : "Story"}
           </h1>
@@ -146,6 +274,8 @@ export function StoryForm(props: Mode) {
                 if (confirm("Delete this story?")) del.mutate();
               }}
               disabled={del.isPending}
+              size="icon"
+              className="h-9 w-9"
             >
               <Trash2 className="h-4 w-4" />
             </Button>
@@ -153,140 +283,174 @@ export function StoryForm(props: Mode) {
         </div>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Story</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form className="space-y-5" onSubmit={handleSubmit(onSubmit)}>
-            <div className="space-y-1.5">
-              <Label>Description</Label>
-              <Textarea
-                rows={6}
-                placeholder="What happens? Beats, twists, mood…"
-                {...register("description")}
-              />
-              {errors.description?.message && (
-                <p className="text-xs text-[var(--color-danger)]">
-                  {errors.description.message}
-                </p>
-              )}
-            </div>
+      <div
+        className={cn(
+          "grid gap-4",
+          props.kind === "edit" && "lg:grid-cols-[minmax(0,1fr)_18rem]",
+        )}
+      >
+        <form
+          className="space-y-3 rounded-[var(--radius-control)] border border-[var(--color-border)]/70 bg-[var(--color-surface)]/45 p-3"
+          onSubmit={handleSubmit(onSubmit)}
+        >
+          <FieldLine label="Story">
+            <Textarea
+              rows={5}
+              placeholder="What happens? Beats, twists, mood…"
+              className={`${quietField} min-h-32 text-sm`}
+              {...descriptionField}
+              onChange={(e) => {
+                descriptionField.onChange(e);
+                scheduleAutoSave({
+                  ...getValues(),
+                  description: e.target.value,
+                });
+              }}
+            />
+          </FieldLine>
+          {errors.description?.message && (
+            <p className="text-xs text-[var(--color-danger)] sm:pl-[6rem]">
+              {errors.description.message}
+            </p>
+          )}
 
-            <div className="space-y-1.5">
-              <Label>Length</Label>
-              <div className="flex flex-wrap gap-2">
-                <Controller
-                  control={control}
-                  name="lengthSeconds"
-                  render={({ field }) => (
-                    <>
-                      {STORY_LENGTHS.map((s) => (
-                        <button
-                          key={s}
-                          type="button"
-                          onClick={() => field.onChange(s)}
-                          className={cn(
-                            "px-3 h-9 rounded-[var(--radius-control)] border text-sm font-mono cursor-pointer transition",
-                            lengthSeconds === s
-                              ? "border-[var(--color-accent)] text-[var(--color-accent)] glow-accent"
-                              : "border-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-fg)]",
-                          )}
-                        >
-                          {s}s
-                        </button>
-                      ))}
-                    </>
-                  )}
+          <FieldLine label="Length">
+            <div className="flex flex-wrap gap-1.5">
+              <Controller
+                control={control}
+                name="lengthSeconds"
+                render={({ field }) => (
+                  <>
+                    {STORY_LENGTHS.map((s) => (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() => {
+                          field.onChange(s);
+                          scheduleAutoSave({
+                            ...getValues(),
+                            lengthSeconds: s,
+                          });
+                        }}
+                        className={cn(
+                          "h-8 rounded-[var(--radius-control)] border px-2.5 text-xs font-mono cursor-pointer transition",
+                          lengthSeconds === s
+                            ? "border-[var(--color-accent)] text-[var(--color-accent)] glow-accent"
+                            : "border-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-fg)]",
+                        )}
+                      >
+                        {s}s
+                      </button>
+                    ))}
+                  </>
+                )}
+              />
+            </div>
+          </FieldLine>
+          {errors.lengthSeconds?.message && (
+            <p className="text-xs text-[var(--color-danger)] sm:pl-[6rem]">
+              {errors.lengthSeconds.message}
+            </p>
+          )}
+
+          <FieldLine label="Characters">
+            <Controller
+              control={control}
+              name="characterIds"
+              render={({ field }) => (
+                <MultiSelect
+                  items={
+                    chars.data?.map((c) => ({ id: c.id, label: c.name })) ?? []
+                  }
+                  value={field.value}
+                  onChange={(next) => {
+                    field.onChange(next);
+                    scheduleAutoSave({
+                      ...getValues(),
+                      characterIds: next,
+                    });
+                  }}
+                  emptyHint="No characters in this world yet."
                 />
-              </div>
-              {errors.lengthSeconds?.message && (
-                <p className="text-xs text-[var(--color-danger)]">
-                  {errors.lengthSeconds.message}
-                </p>
               )}
-            </div>
+            />
+          </FieldLine>
+          {errors.characterIds?.message && (
+            <p className="text-xs text-[var(--color-danger)] sm:pl-[6rem]">
+              {errors.characterIds.message}
+            </p>
+          )}
 
-            <div className="space-y-1.5">
-              <Label>Characters (pick at least one)</Label>
-              <Controller
-                control={control}
-                name="characterIds"
-                render={({ field }) => (
-                  <MultiSelect
-                    items={
-                      chars.data?.map((c) => ({ id: c.id, label: c.name })) ?? []
-                    }
-                    value={field.value}
-                    onChange={field.onChange}
-                    emptyHint="No characters in this world yet."
-                  />
-                )}
-              />
-              {errors.characterIds?.message && (
-                <p className="text-xs text-[var(--color-danger)]">
-                  {errors.characterIds.message}
-                </p>
+          <FieldLine label="Locations">
+            <Controller
+              control={control}
+              name="locationIds"
+              render={({ field }) => (
+                <MultiSelect
+                  items={
+                    locs.data?.map((l) => ({ id: l.id, label: l.name })) ?? []
+                  }
+                  value={field.value ?? []}
+                  onChange={(next) => {
+                    field.onChange(next);
+                    scheduleAutoSave({
+                      ...getValues(),
+                      locationIds: next,
+                    });
+                  }}
+                  emptyHint="No locations in this world yet."
+                />
               )}
-            </div>
+            />
+          </FieldLine>
 
-            <div className="space-y-1.5">
-              <Label>Locations (optional)</Label>
-              <Controller
-                control={control}
-                name="locationIds"
-                render={({ field }) => (
-                  <MultiSelect
-                    items={
-                      locs.data?.map((l) => ({ id: l.id, label: l.name })) ?? []
-                    }
-                    value={field.value ?? []}
-                    onChange={field.onChange}
-                    emptyHint="No locations in this world yet."
-                  />
-                )}
-              />
-            </div>
+          {errors.root?.message && (
+            <p className="text-sm text-[var(--color-danger)]">
+              {errors.root.message}
+            </p>
+          )}
 
-            {errors.root?.message && (
-              <p className="text-sm text-[var(--color-danger)]">
-                {errors.root.message}
-              </p>
-            )}
-
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="ghost" onClick={() => router.back()}>
+          {props.kind === "create" ? (
+            <div className="flex justify-end gap-2 border-t border-[var(--color-border)]/70 pt-3">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => router.back()}
+              >
                 Cancel
               </Button>
-              <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting
-                  ? "Saving…"
-                  : props.kind === "create"
-                    ? "Create story"
-                    : "Save"}
+              <Button type="submit" size="sm" disabled={isSubmitting}>
+                {isSubmitting ? "Saving…" : "Create story"}
               </Button>
             </div>
-          </form>
-        </CardContent>
-      </Card>
+          ) : (
+            <div className="flex min-h-8 items-center justify-end border-t border-[var(--color-border)]/70 pt-3">
+              <SaveHint state={saveState} />
+            </div>
+          )}
+        </form>
+
+        {props.kind === "edit" && existing.data && (
+          <aside className="rounded-[var(--radius-control)] border border-[var(--color-border)]/70 bg-[var(--color-surface)]/55 p-3">
+            <div className="mb-2 flex items-center gap-2">
+              <ImageIcon className="h-4 w-4 text-[var(--color-muted)]" />
+              <h2 className="font-mono text-xs uppercase tracking-widest">
+                Mood images
+              </h2>
+            </div>
+            <ImageUploader
+              ownerKind="story_mood"
+              ownerId={props.storyId}
+              initial={existing.data.moodImages ?? []}
+              compact
+            />
+          </aside>
+        )}
+      </div>
 
       {props.kind === "edit" && existing.data && (
-        <>
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Mood images</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ImageUploader
-                ownerKind="story_mood"
-                ownerId={props.storyId}
-                initial={existing.data.moodImages ?? []}
-              />
-            </CardContent>
-          </Card>
-
-          <SongScriptsPanel worldId={worldId} storyId={props.storyId} />
-        </>
+        <SongScriptsPanel worldId={worldId} storyId={props.storyId} />
       )}
     </div>
   );
@@ -305,7 +469,9 @@ function MultiSelect({
 }) {
   if (items.length === 0) {
     return (
-      <p className="text-sm text-[var(--color-muted)]">{emptyHint ?? "Nothing to pick."}</p>
+      <p className="text-xs text-[var(--color-muted)]">
+        {emptyHint ?? "Nothing to pick."}
+      </p>
     );
   }
   function toggle(id: string) {
@@ -314,7 +480,7 @@ function MultiSelect({
     );
   }
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className="flex flex-wrap gap-1.5">
       {items.map((item) => {
         const active = value.includes(item.id);
         return (
@@ -323,7 +489,7 @@ function MultiSelect({
             type="button"
             onClick={() => toggle(item.id)}
             className={cn(
-              "px-3 h-8 rounded-full border text-xs font-mono uppercase tracking-wider cursor-pointer transition",
+              "h-7 rounded-[var(--radius-control)] border px-2.5 text-[11px] font-mono uppercase tracking-wider cursor-pointer transition",
               active
                 ? "border-[var(--color-accent)] text-[var(--color-accent)] bg-[color-mix(in_oklch,var(--color-accent)_15%,transparent)]"
                 : "border-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-fg)]",
