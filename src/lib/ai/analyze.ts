@@ -81,9 +81,13 @@ async function buildAnalysisMessages(
     "  \"clipIdeas\": [\"Visual description for clip 1\", \"Visual description for clip 2\", ...]",
     "}",
     "",
-    "Use the provided World, Story, Character, and Location context to make the analysis grounded and specific.",
-    "Sections should generally be between 5 and 30 seconds long.",
-    "Return ONLY the raw JSON object. No commentary or markdown code blocks.",
+    "CRITICAL RULES:",
+    "1. COVER THE ENTIRE TIMELINE: The sections MUST collectively cover the entire duration of the song, starting at 0 and ending at the total length of the song.",
+    "2. NO GAPS: Ensure there are no gaps between sections. Minimal overlap is allowed.",
+    "3. RICH IDEAS: Generate at least 3-5 distinct visual clip ideas for EVERY section to provide plenty of creative options.",
+    "4. CONTEXT: Use the provided World, Story, Character, and Location context to make the analysis grounded and specific.",
+    "5. LOGICAL SECTIONS: Identify different stylistic and textual sections of the song (e.g., transitions between Verse, Chorus, Bridge, or significant changes in musical mood and lyrical themes). The sections should reflect the song's natural structure rather than fixed durations.",
+    "6. FORMAT: Return ONLY the raw JSON object. No commentary or markdown code blocks.",
   ].join("\n");
 
   const parts: ChatPart[] = [
@@ -99,6 +103,7 @@ async function buildAnalysisMessages(
         ctx.world.description,
         "",
         `# STORY: ${ctx.story.name}`,
+        `Total Length: ${ctx.story.lengthSeconds} seconds`,
         ctx.story.description,
         "",
         "# CHARACTERS",
@@ -110,7 +115,7 @@ async function buildAnalysisMessages(
         "# LYRICS (Reference)",
         ctx.story.lyrics || "No fixed lyrics provided.",
         "",
-        "Analyze the song now and return the JSON object.",
+        "Analyze the song now. Ensure the entire timeline from 0 to " + ctx.story.lengthSeconds + "s is covered.",
       ].join("\n"),
     },
   ];
