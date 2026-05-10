@@ -135,6 +135,16 @@ export const settings = pgTable("settings", {
   ...timestamps,
 });
 
+export type SongSection = {
+  startSeconds: number;
+  endSeconds: number;
+  description: string;
+  mood: string;
+  characters: string;
+  scenes: string;
+  clipIdeas: string[];
+};
+
 export const storySongs = pgTable(
   "story_songs",
   {
@@ -152,6 +162,8 @@ export const storySongs = pgTable(
     model: text("model"),
     prompt: text("prompt"),
     transcript: text("transcript"),
+    subtitles: text("subtitles"),
+    sections: jsonb("sections").$type<SongSection[]>(),
     costUsd: numeric("cost_usd", { precision: 10, scale: 6 }),
     archived: boolean("archived").notNull().default(false),
     ...timestamps,

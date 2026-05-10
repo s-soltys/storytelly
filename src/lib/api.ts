@@ -89,10 +89,22 @@ export type StorySongDto = {
   lyrics: string | null;
   model: string | null;
   transcript: string | null;
+  subtitles: string | null;
+  sections: SongSectionDto[] | null;
   costUsd: string | null;
   archived: boolean;
   createdAt: string;
   updatedAt: string;
+};
+
+export type SongSectionDto = {
+  startSeconds: number;
+  endSeconds: number;
+  description: string;
+  mood: string;
+  characters: string;
+  scenes: string;
+  clipIdeas: string[];
 };
 
 export type SettingsDto = {

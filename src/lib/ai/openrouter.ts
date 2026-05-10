@@ -3,7 +3,11 @@ export type ChatImagePart = {
   type: "image_url";
   image_url: { url: string };
 };
-export type ChatPart = ChatTextPart | ChatImagePart;
+export type ChatAudioPart = {
+  type: "input_audio";
+  input_audio: { data: string; format: "mp3" | "wav" | "flac" | "opus" };
+};
+export type ChatPart = ChatTextPart | ChatImagePart | ChatAudioPart;
 
 export type ChatMessage =
   | { role: "system"; content: string }

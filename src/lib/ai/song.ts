@@ -95,10 +95,10 @@ export async function generateStorySong(args: {
   return row;
 }
 
-async function loadSongContext(args: {
+export async function loadSongContext(args: {
   worldId: string;
   storyId: string;
-  lengthSeconds: number;
+  lengthSeconds?: number;
   lyrics?: string;
 }): Promise<SongContext> {
   const [story] = await db
@@ -157,7 +157,7 @@ async function loadSongContext(args: {
       id: story.id,
       name: story.name,
       description: story.description,
-      lengthSeconds: args.lengthSeconds,
+      lengthSeconds: args.lengthSeconds ?? 0,
       lyrics: args.lyrics?.trim() || null,
     },
     world: {
@@ -259,16 +259,23 @@ async function buildSongMessages(ctx: SongContext): Promise<ChatMessage[]> {
   ];
 }
 
-function serializePromptForStorage(messages: ChatMessage[]): string {
+export function serializePromptForStorage(messages: ChatMessage[]): string {
   const safe = messages.map((message) => {
     if (message.role === "user" && Array.isArray(message.content)) {
       return {
         role: message.role,
-        content: message.content.map((part) =>
-          part.type === "image_url"
-            ? { type: "image_url", image_url: { url: "[image elided]" } }
-            : part,
-        ),
+        content: message.content.map((part) => {
+          if (part.type === "image_url") {
+            return { type: "image_url", image_url: { url: "[image elided]" } };
+          }
+          if (part.type === "input_audio") {
+            return {
+              type: "input_audio",
+              input_audio: { data: "[audio elided]", format: part.input_audio.format },
+            };
+          }
+          return part;
+        }),
       };
     }
     return message;
