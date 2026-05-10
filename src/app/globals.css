@@ -1,0 +1,47 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg: oklch(0.14 0.015 320);
+  --color-surface: oklch(0.18 0.02 320);
+  --color-surface-2: oklch(0.22 0.025 320);
+  --color-border: oklch(0.32 0.04 330);
+  --color-fg: oklch(0.96 0.015 320);
+  --color-muted: oklch(0.66 0.03 320);
+  --color-accent: oklch(0.68 0.27 340);
+  --color-accent-fg: oklch(0.14 0.015 320);
+  --color-danger: oklch(0.62 0.24 25);
+
+  --font-sans:
+    var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+
+  --radius-card: 0.75rem;
+  --radius-control: 0.5rem;
+}
+
+@layer base {
+  html,
+  body {
+    background: var(--color-bg);
+    color: var(--color-fg);
+  }
+  body {
+    font-family: var(--font-sans);
+  }
+  ::selection {
+    background: color-mix(in oklch, var(--color-accent) 50%, transparent);
+    color: var(--color-fg);
+  }
+  *:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+}
+
+@utility ring-accent {
+  box-shadow: 0 0 0 1px var(--color-accent);
+}
+
+@utility glow-accent {
+  box-shadow: 0 0 20px -4px color-mix(in oklch, var(--color-accent) 60%, transparent);
+}
