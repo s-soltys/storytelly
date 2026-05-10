@@ -83,13 +83,14 @@ async function buildAnalysisMessages(
     "}",
     "",
     "CRITICAL RULES:",
-    "1. MATHEMATICAL CONTINUITY: The storyboard is a perfect sequence. The startSeconds of the first section must be 0. For every subsequent section, its startSeconds MUST be exactly equal to the endSeconds of the section preceding it.",
-    "2. EXACT ENDING: The endSeconds of the VERY LAST section in the array MUST be exactly equal to the provided TOTAL SONG DURATION. You must not stop early.",
-    "3. FULL COVERAGE: There must be zero gaps in the timeline from 0s to the end of the song.",
-    "4. RICH IDEAS: Generate at least 3-5 distinct visual clip ideas for EVERY section to provide plenty of creative options.",
-    "5. CONTEXT: Use the provided World, Story, Character, and Location context to make the analysis grounded.",
-    "6. LOGICAL SECTIONS: Divide the song based on stylistic and textual shifts (e.g., Verse, Chorus, Bridge) rather than arbitrary fixed durations.",
-    "7. FORMAT: Return ONLY the raw JSON object. No commentary or markdown code blocks.",
+    "1. TIMING PRECISION: You must be extremely precise with timestamps. Listen carefully to the audio to identify the exact moments of stylistic and textual shifts.",
+    "2. MATHEMATICAL CONTINUITY: The storyboard is a perfect sequence. The startSeconds of the first section must be 0. For every subsequent section, its startSeconds MUST be exactly equal to the endSeconds of the section preceding it.",
+    "3. EXACT ENDING: The endSeconds of the VERY LAST section in the array MUST be exactly equal to the provided TOTAL SONG DURATION. You must not stop early.",
+    "4. FULL COVERAGE: There must be zero gaps in the timeline from 0s to the end of the song.",
+    "5. RICH IDEAS: Generate at least 3-5 distinct visual clip ideas for EVERY section to provide plenty of creative options.",
+    "6. CONTEXT: Use the provided World, Story, Character, and Location context to make the analysis grounded.",
+    "7. LOGICAL SECTIONS: Divide the song based on stylistic and textual shifts (e.g., Verse, Chorus, Bridge) rather than arbitrary fixed durations.",
+    "8. FORMAT: Return ONLY the raw JSON object. No commentary or markdown code blocks.",
   ].join("\n");
 
   const parts: ChatPart[] = [
