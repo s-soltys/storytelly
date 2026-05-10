@@ -45,7 +45,7 @@ export default function StoryboardPage() {
                 {song.lengthSeconds ? ` · ${song.lengthSeconds}s` : ""}
               </p>
             </div>
-            <audio controls src={song.url} className="w-full" />
+            <audio controls src={song.url} className="h-8 w-full" />
           </div>
         ) : (
           <p className="text-xs text-[var(--color-muted)]">

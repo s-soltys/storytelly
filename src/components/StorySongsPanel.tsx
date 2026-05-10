@@ -146,7 +146,11 @@ function SongRow({
   storyboardHref: string;
 }) {
   return (
-    <article className="space-y-2 rounded-[var(--radius-control)] border border-[var(--color-border)]/80 bg-[var(--color-surface)]/70 p-3">
+    <article
+      className={`space-y-2 rounded-[var(--radius-control)] border border-[var(--color-border)]/80 bg-[var(--color-surface)]/70 p-3 transition-opacity ${
+        song.archived ? "opacity-50 grayscale-[0.5]" : ""
+      }`}
+    >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <h3 className="truncate font-mono text-xs uppercase tracking-widest">
@@ -179,7 +183,7 @@ function SongRow({
           </Button>
         </div>
       </div>
-      <audio controls src={song.url} className="w-full" />
+      <audio controls src={song.url} className="h-8 w-full" />
     </article>
   );
 }
