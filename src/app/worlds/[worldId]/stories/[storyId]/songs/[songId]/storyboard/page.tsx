@@ -7,16 +7,17 @@ import { api, type StorySongDto } from "@/lib/api";
 import { ArrowLeft, Music } from "lucide-react";
 
 export default function StoryboardPage() {
-  const { worldId, storyId } = useParams<{
+  const { worldId, storyId, songId } = useParams<{
     worldId: string;
     storyId: string;
+    songId: string;
   }>();
   const songs = useQuery({
     queryKey: ["story-songs", storyId],
     queryFn: () =>
       api.get<StorySongDto[]>(`/api/worlds/${worldId}/stories/${storyId}/songs`),
   });
-  const selected = songs.data?.find((song) => song.selected);
+  const song = songs.data?.find((item) => item.id === songId);
 
   return (
     <div className="space-y-4">
@@ -33,21 +34,22 @@ export default function StoryboardPage() {
         </h1>
         {songs.isLoading ? (
           <p className="text-xs text-[var(--color-muted)]">Loading song…</p>
-        ) : selected ? (
+        ) : song && !song.archived ? (
           <div className="space-y-2">
             <div>
               <p className="font-mono text-xs uppercase tracking-widest">
-                {selected.name}
+                {song.name}
               </p>
               <p className="mt-1 text-[11px] uppercase tracking-wider text-[var(--color-muted)]">
-                Selected {selected.source} song
+                {song.source}
+                {song.lengthSeconds ? ` · ${song.lengthSeconds}s` : ""}
               </p>
             </div>
-            <audio controls src={selected.url} className="w-full" />
+            <audio controls src={song.url} className="w-full" />
           </div>
         ) : (
           <p className="text-xs text-[var(--color-muted)]">
-            Select a song on the story page before opening the storyboard.
+            This song is unavailable or archived.
           </p>
         )}
       </section>

@@ -31,10 +31,12 @@ async function songDto(row: typeof storySongs.$inferSelect) {
     s3Key: row.s3Key,
     mimeType: row.mimeType,
     sizeBytes: row.sizeBytes,
+    lengthSeconds: row.lengthSeconds,
+    lyrics: row.lyrics,
     model: row.model,
     transcript: row.transcript,
     costUsd: row.costUsd,
-    selected: row.selected,
+    archived: row.archived,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -49,7 +51,7 @@ export async function GET(_req: Request, { params }: Ctx) {
     .select()
     .from(storySongs)
     .where(eq(storySongs.storyId, storyId))
-    .orderBy(desc(storySongs.selected), desc(storySongs.createdAt));
+    .orderBy(storySongs.archived, desc(storySongs.createdAt));
   return Response.json(await Promise.all(rows.map(songDto)));
 }
 
@@ -80,11 +82,6 @@ export async function POST(req: Request, { params }: Ctx) {
 
   await putObject(key, buf, "audio/mpeg");
   try {
-    const existing = await db
-      .select({ id: storySongs.id })
-      .from(storySongs)
-      .where(eq(storySongs.storyId, storyId))
-      .limit(1);
     const [row] = await db
       .insert(storySongs)
       .values({
@@ -94,7 +91,7 @@ export async function POST(req: Request, { params }: Ctx) {
         s3Key: key,
         mimeType: "audio/mpeg",
         sizeBytes: file.size,
-        selected: existing.length === 0,
+        archived: false,
       })
       .returning();
     return Response.json(await songDto(row), { status: 201 });

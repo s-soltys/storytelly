@@ -51,7 +51,7 @@ export function SettingsPanel() {
           <KeyRound className="h-4 w-4" /> AI configuration
         </CardTitle>
         <CardDescription>
-          Account-level OpenRouter key. Used for story lyrics and song generation.
+          Account-level OpenRouter key. Used for song lyrics and song generation.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

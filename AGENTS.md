@@ -6,7 +6,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 # Storytelly — agent guide
 
-App for managing **worlds**, **characters**, **locations**, **stories**, one editable lyrics draft per story, and MP3 songs/storyboards for AI-generated music videos. Lyrics and song generation are in scope via OpenRouter; broader video generation, per-world model selection, and cost tracking remain future work.
+App for managing **worlds**, **characters**, **locations**, **stories**, and MP3 songs/storyboards for AI-generated music videos. Lyrics and song generation are in scope via OpenRouter; broader video generation, per-world model selection, and cost tracking remain future work.
 
 ## Stack — what to reach for
 
@@ -70,14 +70,14 @@ src/
 - Store song metadata in `story_songs`; MP3 bytes go to S3/MinIO under `stories/{storyId}/songs/...`.
 - Song responses include presigned GET URLs because the bucket is private. Use a plain HTML `<audio controls>` player.
 - Songs are either `generated` by OpenRouter Lyria or `uploaded` by the user. Only MP3 uploads are supported.
-- A story may have many songs, but only one should be selected at a time. Selecting a song clears the previous selection in the API transaction.
-- The storyboard page is tied to the selected song and currently shows the selected MP3 player plus a TODO workspace below it.
+- A story may have many songs. Songs can be archived; non-archived songs link to their own storyboard page.
+- The storyboard page is tied to a specific non-archived song and currently shows that MP3 player plus a TODO workspace below it.
 
 ### Naming rules (business)
 - Character and location `name` is **immutable after creation** and **unique per world**. PATCH zod schemas omit `name` deliberately — keep it that way.
-- Story length: integer seconds, multiple of 15, between 30 and 180 inclusive. Enforced by Postgres CHECK constraint *and* zod.
-- Stories have editable `name`, `description`, parameter selections, and `lyrics`; existing stories autosave these fields inline. Lyrics are one-per-story and may be generated or manually edited.
-- Story songs are generated from all parent datapoints: world fields, selected characters/locations, story name/description/length, lyrics, and available references.
+- Song length: optional integer seconds, multiple of 15, between 30 and 180 inclusive. Enforced by Postgres CHECK constraint *and* zod when present.
+- Stories have editable `name`, `description`, and parameter selections; existing stories autosave these fields inline. Lyrics and length belong to generated songs, not stories.
+- Story songs are generated from all parent datapoints: world fields, selected characters/locations, story name/description, chosen song length, optional song lyrics, and available references.
 
 ### Styling
 - Use the CSS variables defined in [src/app/globals.css](src/app/globals.css): `--color-bg`, `--color-surface`, `--color-fg`, `--color-accent` (magenta), etc. Don't introduce new colors casually.
@@ -86,7 +86,7 @@ src/
 - Treat entity pages as compact workspaces, not document-style forms. Prefer dense two-column layouts on desktop, narrow left labels, quiet field surfaces, and small side panels for image uploaders.
 - Inline editable fields should blend into the surrounding layout: use low-contrast backgrounds/borders by default, visible focus/hover states, and compact status text for autosave. Avoid large bordered form cards unless creating a brand-new entity.
 - Do not create separate edit views for worlds, characters, locations, or stories when the entity already exists. Display and editing happen in the same view; changes autosave after short debounce where the record already exists.
-- AI-generated lyrics are destructive replacement of the story's single `lyrics` field. Confirm before regenerating when lyrics already exist, then allow manual edits to autosave like any other story field.
+- Song generation happens on a dedicated song creation page: choose length, optionally generate/edit lyrics for that song, then generate the MP3.
 - Song generation creates a new song row and does not replace uploaded/generated songs. Keep song management compact, with generate/upload controls above a list of audio players.
 - Keep repeated lists compact. Use small row/card padding, short section headers, and image thumbnails that support scanning instead of dominating the page.
 - Preserve immutable-field rules visually. Character/location names are locked after creation; show them as locked/read-only rather than adding name PATCH support.

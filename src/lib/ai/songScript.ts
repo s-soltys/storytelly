@@ -50,6 +50,7 @@ export class GenerationError extends Error {
 export async function generateLyrics(args: {
   worldId: string;
   storyId: string;
+  lengthSeconds: number;
 }): Promise<{ lyrics: string }> {
   const ctx = await loadContext(args);
 
@@ -67,17 +68,13 @@ export async function generateLyrics(args: {
 
   const result = await callOpenRouter({ apiKey, model, messages });
 
-  await db
-    .update(stories)
-    .set({ lyrics: result.text, updatedAt: new Date() })
-    .where(and(eq(stories.id, ctx.story.id), eq(stories.worldId, args.worldId)));
-
   return { lyrics: result.text };
 }
 
 async function loadContext(args: {
   worldId: string;
   storyId: string;
+  lengthSeconds: number;
 }): Promise<GenerationContext> {
   const [story] = await db
     .select()
@@ -142,7 +139,7 @@ async function loadContext(args: {
       id: story.id,
       name: story.name,
       description: story.description,
-      lengthSeconds: story.lengthSeconds,
+      lengthSeconds: args.lengthSeconds,
     },
     world: {
       name: world.name,

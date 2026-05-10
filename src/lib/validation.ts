@@ -28,18 +28,21 @@ export const locationUpdateSchema = characterUpdateSchema;
 export const storyCreateSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(120),
   description: z.string().trim().min(1, "Description is required"),
+  characterIds: z.array(z.string().uuid()).min(1, "Pick at least one character"),
+  locationIds: z.array(z.string().uuid()).default([]),
+});
+
+export const storyUpdateSchema = storyCreateSchema.partial();
+
+export const songGenerateSchema = z.object({
   lengthSeconds: z
     .number()
     .int()
     .refine((v) => STORY_LENGTHS.includes(v), {
       message: "Length must be a multiple of 15 between 30 and 180",
     }),
-  characterIds: z.array(z.string().uuid()).min(1, "Pick at least one character"),
-  locationIds: z.array(z.string().uuid()).default([]),
-  lyrics: z.string().trim().default(""),
+  lyrics: z.string().trim().optional(),
 });
-
-export const storyUpdateSchema = storyCreateSchema.partial();
 
 export const imageOwnerKindSchema = z.enum([
   "world_mood",

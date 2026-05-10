@@ -70,8 +70,6 @@ export type StoryDto = {
   worldId: string;
   name: string;
   description: string;
-  lengthSeconds: number;
-  lyrics: string;
   createdAt: string;
   characterIds?: string[];
   locationIds?: string[];
@@ -87,10 +85,12 @@ export type StorySongDto = {
   s3Key: string;
   mimeType: string;
   sizeBytes: number | null;
+  lengthSeconds: number | null;
+  lyrics: string | null;
   model: string | null;
   transcript: string | null;
   costUsd: string | null;
-  selected: boolean;
+  archived: boolean;
   createdAt: string;
   updatedAt: string;
 };

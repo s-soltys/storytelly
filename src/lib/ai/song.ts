@@ -29,7 +29,7 @@ type SongContext = {
     name: string;
     description: string;
     lengthSeconds: number;
-    lyrics: string;
+    lyrics: string | null;
   };
   world: { name: string; artStyle: string; description: string };
   characters: Array<{
@@ -47,6 +47,8 @@ type SongContext = {
 export async function generateStorySong(args: {
   worldId: string;
   storyId: string;
+  lengthSeconds: number;
+  lyrics?: string;
 }): Promise<{ id: string }> {
   const ctx = await loadSongContext(args);
   const [config] = await db.select().from(settingsTable).limit(1);
@@ -70,12 +72,6 @@ export async function generateStorySong(args: {
   const s3Key = `stories/${ctx.story.id}/songs/${randomUUID()}.${GENERATED_EXT}`;
   await putObject(s3Key, result.audio, GENERATED_MIME);
 
-  const existing = await db
-    .select({ id: storySongs.id })
-    .from(storySongs)
-    .where(eq(storySongs.storyId, ctx.story.id))
-    .limit(1);
-
   const [row] = await db
     .insert(storySongs)
     .values({
@@ -85,12 +81,14 @@ export async function generateStorySong(args: {
       s3Key,
       mimeType: GENERATED_MIME,
       sizeBytes: result.audio.byteLength,
+      lengthSeconds: args.lengthSeconds,
+      lyrics: args.lyrics?.trim() || null,
       model,
       prompt: serializePromptForStorage(messages),
       transcript: result.transcript || null,
       costUsd:
         result.usage.costUsd != null ? result.usage.costUsd.toString() : null,
-      selected: existing.length === 0,
+      archived: false,
     })
     .returning({ id: storySongs.id });
 
@@ -100,6 +98,8 @@ export async function generateStorySong(args: {
 async function loadSongContext(args: {
   worldId: string;
   storyId: string;
+  lengthSeconds: number;
+  lyrics?: string;
 }): Promise<SongContext> {
   const [story] = await db
     .select()
@@ -157,8 +157,8 @@ async function loadSongContext(args: {
       id: story.id,
       name: story.name,
       description: story.description,
-      lengthSeconds: story.lengthSeconds,
-      lyrics: story.lyrics,
+      lengthSeconds: args.lengthSeconds,
+      lyrics: args.lyrics?.trim() || null,
     },
     world: {
       name: world.name,
@@ -199,7 +199,7 @@ async function buildSongMessages(ctx: SongContext): Promise<ChatMessage[]> {
         ctx.story.description,
         "",
         "# LYRICS",
-        ctx.story.lyrics.trim() || "No fixed lyrics. Compose fitting original lyrics.",
+        ctx.story.lyrics?.trim() || "No fixed lyrics. Compose fitting original lyrics.",
       ].join("\n"),
     },
   ];

@@ -32,31 +32,16 @@ export async function PATCH(req: Request, { params }: Ctx) {
     return jsonError(404, "Story not found");
   }
   const body = await req.json().catch(() => null);
-  if (!body || typeof body !== "object" || !("selected" in body)) {
-    return jsonError(400, "Expected selected flag");
+  if (!body || typeof body !== "object" || !("archived" in body)) {
+    return jsonError(400, "Expected archived flag");
   }
 
-  const selected = Boolean((body as { selected: unknown }).selected);
-  const updated = await db.transaction(async (tx) => {
-    const [target] = await tx
-      .select()
-      .from(storySongs)
-      .where(and(eq(storySongs.id, songId), eq(storySongs.storyId, storyId)));
-    if (!target) return null;
-
-    if (selected) {
-      await tx
-        .update(storySongs)
-        .set({ selected: false, updatedAt: new Date() })
-        .where(eq(storySongs.storyId, storyId));
-    }
-    const [row] = await tx
-      .update(storySongs)
-      .set({ selected, updatedAt: new Date() })
-      .where(and(eq(storySongs.id, songId), eq(storySongs.storyId, storyId)))
-      .returning();
-    return row;
-  });
+  const archived = Boolean((body as { archived: unknown }).archived);
+  const [updated] = await db
+    .update(storySongs)
+    .set({ archived, updatedAt: new Date() })
+    .where(and(eq(storySongs.id, songId), eq(storySongs.storyId, storyId)))
+    .returning();
 
   if (!updated) return jsonError(404, "Song not found");
   return Response.json(await songDto(updated));

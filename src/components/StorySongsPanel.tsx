@@ -6,7 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type StorySongDto } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Music, Radio, RotateCw, Trash2, Upload } from "lucide-react";
+import { Archive, Music, Upload } from "lucide-react";
 
 export function StorySongsPanel({
   worldId,
@@ -23,17 +23,6 @@ export function StorySongsPanel({
     queryKey: ["story-songs", storyId],
     queryFn: () =>
       api.get<StorySongDto[]>(`/api/worlds/${worldId}/stories/${storyId}/songs`),
-  });
-
-  const generate = useMutation({
-    mutationFn: () =>
-      api.post<StorySongDto>(
-        `/api/worlds/${worldId}/stories/${storyId}/songs/generate`,
-        {},
-      ),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["story-songs", storyId] });
-    },
   });
 
   const upload = useMutation({
@@ -53,27 +42,18 @@ export function StorySongsPanel({
     },
   });
 
-  const select = useMutation({
+  const archive = useMutation({
     mutationFn: (songId: string) =>
       api.patch<StorySongDto>(
         `/api/worlds/${worldId}/stories/${storyId}/songs/${songId}`,
-        { selected: true },
+        { archived: true },
       ),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["story-songs", storyId] });
     },
   });
 
-  const remove = useMutation({
-    mutationFn: (songId: string) =>
-      api.del<void>(`/api/worlds/${worldId}/stories/${storyId}/songs/${songId}`),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["story-songs", storyId] });
-    },
-  });
-
   const items = songs.data ?? [];
-  const selected = items.find((song) => song.selected);
 
   return (
     <section className="space-y-2.5 rounded-[var(--radius-control)] border border-[var(--color-border)]/70 bg-[var(--color-surface)]/45 p-3">
@@ -87,31 +67,11 @@ export function StorySongsPanel({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Button
-            type="button"
-            size="sm"
-            onClick={() => generate.mutate()}
-            disabled={generate.isPending}
-          >
-            {generate.isPending ? (
-              <>
-                <RotateCw className="h-4 w-4 animate-spin" /> Generating…
-              </>
-            ) : (
-              <>
-                <Music className="h-4 w-4" /> Generate
-              </>
-            )}
+          <Button asChild size="sm">
+            <Link href={`/worlds/${worldId}/stories/${storyId}/songs/new`}>
+              <Music className="h-4 w-4" /> Generate
+            </Link>
           </Button>
-          {selected && (
-            <Button asChild size="sm" variant="secondary">
-              <Link
-                href={`/worlds/${worldId}/stories/${storyId}/storyboard`}
-              >
-                <Radio className="h-4 w-4" /> Open storyboard
-              </Link>
-            </Button>
-          )}
         </div>
       </header>
 
@@ -143,13 +103,9 @@ export function StorySongsPanel({
         />
       </div>
 
-      {(generate.error || upload.error || select.error || remove.error) && (
+      {(upload.error || archive.error) && (
         <p className="text-xs text-[var(--color-danger)]">
-          {
-            (
-              (generate.error || upload.error || select.error || remove.error) as Error
-            ).message
-          }
+          {((upload.error || archive.error) as Error).message}
         </p>
       )}
 
@@ -165,13 +121,11 @@ export function StorySongsPanel({
             <SongRow
               key={song.id}
               song={song}
-              selecting={select.isPending}
-              removing={remove.isPending}
-              onSelect={() => select.mutate(song.id)}
-              onDelete={() => {
-                if (confirm("Delete this song?")) remove.mutate(song.id);
+              archiving={archive.isPending}
+              onArchive={() => {
+                if (confirm("Archive this song?")) archive.mutate(song.id);
               }}
-              storyboardHref={`/worlds/${worldId}/stories/${storyId}/storyboard`}
+              storyboardHref={`/worlds/${worldId}/stories/${storyId}/songs/${song.id}/storyboard`}
             />
           ))}
         </div>
@@ -182,17 +136,13 @@ export function StorySongsPanel({
 
 function SongRow({
   song,
-  selecting,
-  removing,
-  onSelect,
-  onDelete,
+  archiving,
+  onArchive,
   storyboardHref,
 }: {
   song: StorySongDto;
-  selecting: boolean;
-  removing: boolean;
-  onSelect: () => void;
-  onDelete: () => void;
+  archiving: boolean;
+  onArchive: () => void;
   storyboardHref: string;
 }) {
   return (
@@ -204,37 +154,28 @@ function SongRow({
           </h3>
           <p className="mt-1 text-[11px] uppercase tracking-wider text-[var(--color-muted)]">
             {song.source} {song.model ? `· ${song.model}` : ""}
+            {song.lengthSeconds ? ` · ${song.lengthSeconds}s` : ""}
             {song.sizeBytes ? ` · ${formatBytes(song.sizeBytes)}` : ""}
             {song.costUsd ? ` · $${song.costUsd}` : ""}
+            {song.archived ? " · archived" : ""}
           </p>
         </div>
         <div className="flex gap-2">
-          {song.selected ? (
+          {!song.archived && (
             <Button asChild size="sm" variant="secondary">
               <Link href={storyboardHref}>
-                <Radio className="h-4 w-4" /> Open storyboard
+                Open storyboard
               </Link>
-            </Button>
-          ) : (
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              disabled={selecting}
-              onClick={onSelect}
-            >
-              Select
             </Button>
           )}
           <Button
             type="button"
-            size="icon"
+            size="sm"
             variant="ghost"
-            className="h-8 w-8"
-            disabled={removing}
-            onClick={onDelete}
+            disabled={song.archived || archiving}
+            onClick={onArchive}
           >
-            <Trash2 className="h-4 w-4" />
+            <Archive className="h-4 w-4" /> Archive
           </Button>
         </div>
       </div>

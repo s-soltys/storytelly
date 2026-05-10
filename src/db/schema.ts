@@ -68,16 +68,8 @@ export const stories = pgTable(
       .references(() => worlds.id, { onDelete: "cascade" }),
     name: text("name").notNull().default("Untitled story"),
     description: text("description").notNull(),
-    lengthSeconds: integer("length_seconds").notNull(),
-    lyrics: text("lyrics").notNull().default(""),
     ...timestamps,
   },
-  (t) => [
-    check(
-      "stories_length_seconds_check",
-      sql`${t.lengthSeconds} % 15 = 0 AND ${t.lengthSeconds} BETWEEN 30 AND 180`,
-    ),
-  ],
 );
 
 export const storyCharacters = pgTable(
@@ -155,14 +147,22 @@ export const storySongs = pgTable(
     s3Key: text("s3_key").notNull(),
     mimeType: text("mime_type").notNull().default("audio/mpeg"),
     sizeBytes: integer("size_bytes"),
+    lengthSeconds: integer("length_seconds"),
+    lyrics: text("lyrics"),
     model: text("model"),
     prompt: text("prompt"),
     transcript: text("transcript"),
     costUsd: numeric("cost_usd", { precision: 10, scale: 6 }),
-    selected: boolean("selected").notNull().default(false),
+    archived: boolean("archived").notNull().default(false),
     ...timestamps,
   },
-  (t) => [index("story_songs_story_idx").on(t.storyId, t.createdAt.desc())],
+  (t) => [
+    index("story_songs_story_idx").on(t.storyId, t.createdAt.desc()),
+    check(
+      "story_songs_length_seconds_check",
+      sql`${t.lengthSeconds} IS NULL OR (${t.lengthSeconds} % 15 = 0 AND ${t.lengthSeconds} BETWEEN 30 AND 180)`,
+    ),
+  ],
 );
 
 export type World = typeof worlds.$inferSelect;

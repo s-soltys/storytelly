@@ -3,14 +3,10 @@
 import Link from "next/link";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { Controller, useForm, useWatch } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  STORY_LENGTHS,
-  storyCreateSchema,
-  type StoryCreate,
-} from "@/lib/validation";
+import { storyCreateSchema, type StoryCreate } from "@/lib/validation";
 import {
   api,
   type CharacterDto,
@@ -22,7 +18,7 @@ import { Input, Textarea } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ImageUploader } from "@/components/ImageUploader";
 import { StorySongsPanel } from "@/components/StorySongsPanel";
-import { ArrowLeft, ImageIcon, Music, RotateCw, Trash2 } from "lucide-react";
+import { ArrowLeft, ImageIcon, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type Mode =
@@ -105,7 +101,6 @@ export function StoryForm(props: Mode) {
     getValues,
     handleSubmit,
     reset,
-    setValue,
     setError,
     formState: { errors, isSubmitting },
   } = useForm<StoryCreate>({
@@ -113,10 +108,8 @@ export function StoryForm(props: Mode) {
     defaultValues: {
       name: "",
       description: "",
-      lengthSeconds: 60,
       characterIds: [],
       locationIds: [],
-      lyrics: "",
     },
   });
   const [saveState, setSaveState] = useState<SaveState>("idle");
@@ -129,10 +122,8 @@ export function StoryForm(props: Mode) {
       const values = {
         name: existing.data.name,
         description: existing.data.description,
-        lengthSeconds: existing.data.lengthSeconds,
         characterIds: existing.data.characterIds ?? [],
         locationIds: existing.data.locationIds ?? [],
-        lyrics: existing.data.lyrics ?? "",
       };
       savedValues.current = values;
       reset(values);
@@ -180,79 +171,13 @@ export function StoryForm(props: Mode) {
     },
   });
 
-  const generateLyrics = useMutation({
-    mutationFn: async () => {
-      if (props.kind !== "edit") throw new Error("Create the story first.");
-      if (saveTimer.current) window.clearTimeout(saveTimer.current);
-
-      const parsed = storyCreateSchema.safeParse(getValues());
-      if (!parsed.success) {
-        throw new Error("Complete the story fields before generating lyrics.");
-      }
-
-      saveVersion.current += 1;
-      setSaveState("saving");
-      const updated = await api.patch<StoryDto>(
-        `/api/worlds/${worldId}/stories/${props.storyId}`,
-        parsed.data,
-      );
-      savedValues.current = parsed.data;
-      qc.setQueryData(["story", props.storyId], (prev: StoryDto | undefined) =>
-        prev
-          ? {
-              ...prev,
-              ...updated,
-              name: parsed.data.name,
-              description: parsed.data.description,
-              lengthSeconds: parsed.data.lengthSeconds,
-              lyrics: parsed.data.lyrics,
-              characterIds: parsed.data.characterIds,
-              locationIds: parsed.data.locationIds ?? [],
-              moodImages: prev.moodImages,
-            }
-          : prev,
-      );
-
-      return api.post<{ lyrics: string }>(
-        `/api/worlds/${worldId}/stories/${
-          props.storyId
-        }/lyrics`,
-        {},
-      );
-    },
-    onSuccess: ({ lyrics }) => {
-      if (props.kind !== "edit") return;
-      const next = { ...getValues(), lyrics };
-      setValue("lyrics", lyrics, { shouldDirty: false, shouldValidate: true });
-      savedValues.current = next;
-      setSaveState("saved");
-      qc.setQueryData(["story", props.storyId], (prev: StoryDto | undefined) =>
-        prev ? { ...prev, lyrics } : prev,
-      );
-      qc.setQueryData(["stories", worldId], (prev: StoryDto[] | undefined) =>
-        prev?.map((story) =>
-          story.id === props.storyId ? { ...story, lyrics } : story,
-        ),
-      );
-    },
-    onError: (e) => {
-      setError("root", { message: (e as Error).message });
-      setSaveState("error");
-    },
-  });
-
-  const lengthSeconds = useWatch({ control, name: "lengthSeconds" });
-  const lyrics = useWatch({ control, name: "lyrics" });
   const nameField = register("name");
   const descriptionField = register("description");
-  const lyricsField = register("lyrics");
 
   function sameValues(a: StoryCreate, b: StoryCreate) {
     return (
       a.name === b.name &&
       a.description === b.description &&
-      (a.lyrics ?? "") === (b.lyrics ?? "") &&
-      a.lengthSeconds === b.lengthSeconds &&
       a.characterIds.length === b.characterIds.length &&
       a.characterIds.every((id, idx) => id === b.characterIds[idx]) &&
       (a.locationIds ?? []).length === (b.locationIds ?? []).length &&
@@ -295,8 +220,6 @@ export function StoryForm(props: Mode) {
                 ...updated,
                 name: parsed.data.name,
                 description: parsed.data.description,
-                lengthSeconds: parsed.data.lengthSeconds,
-                lyrics: parsed.data.lyrics,
                 characterIds: parsed.data.characterIds,
                 locationIds: parsed.data.locationIds ?? [],
                 moodImages: prev.moodImages,
@@ -310,8 +233,6 @@ export function StoryForm(props: Mode) {
                   ...story,
                   name: parsed.data.name,
                   description: parsed.data.description,
-                  lengthSeconds: parsed.data.lengthSeconds,
-                  lyrics: parsed.data.lyrics,
                   characterIds: parsed.data.characterIds,
                   locationIds: parsed.data.locationIds ?? [],
                 }
@@ -411,45 +332,6 @@ export function StoryForm(props: Mode) {
             </p>
           )}
 
-          <FieldLine label="Length">
-            <div className="flex flex-wrap gap-1.5">
-              <Controller
-                control={control}
-                name="lengthSeconds"
-                render={({ field }) => (
-                  <>
-                    {STORY_LENGTHS.map((s) => (
-                      <button
-                        key={s}
-                        type="button"
-                        onClick={() => {
-                          field.onChange(s);
-                          scheduleAutoSave({
-                            ...getValues(),
-                            lengthSeconds: s,
-                          });
-                        }}
-                        className={cn(
-                          "h-8 rounded-[var(--radius-control)] border px-2.5 text-xs font-mono cursor-pointer transition",
-                          lengthSeconds === s
-                            ? "border-[var(--color-accent)] text-[var(--color-accent)] glow-accent"
-                            : "border-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-fg)]",
-                        )}
-                      >
-                        {s}s
-                      </button>
-                    ))}
-                  </>
-                )}
-              />
-            </div>
-          </FieldLine>
-          {errors.lengthSeconds?.message && (
-            <p className="text-xs text-[var(--color-danger)] sm:pl-[6rem]">
-              {errors.lengthSeconds.message}
-            </p>
-          )}
-
           <FieldLine label="Characters">
             <Controller
               control={control}
@@ -499,65 +381,6 @@ export function StoryForm(props: Mode) {
                 />
               )}
             />
-          </FieldLine>
-
-          <FieldLine label="Lyrics">
-            <div className="space-y-2">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-xs text-[var(--color-muted)]">
-                  {props.kind === "create"
-                    ? "Create the story before generating lyrics."
-                    : "Generated from this world, selected cast, locations, and story."}
-                </p>
-                {props.kind === "edit" && (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="secondary"
-                    disabled={generateLyrics.isPending}
-                    onClick={() => {
-                      if (
-                        lyrics?.trim() &&
-                        !confirm("Regenerate lyrics and replace the current text?")
-                      ) {
-                        return;
-                      }
-                      generateLyrics.mutate();
-                    }}
-                  >
-                    {generateLyrics.isPending ? (
-                      <>
-                        <RotateCw className="h-4 w-4 animate-spin" />
-                        Generating…
-                      </>
-                    ) : lyrics?.trim() ? (
-                      <>
-                        <RotateCw className="h-4 w-4" />
-                        Regenerate
-                      </>
-                    ) : (
-                      <>
-                        <Music className="h-4 w-4" />
-                        Generate
-                      </>
-                    )}
-                  </Button>
-                )}
-              </div>
-              <Textarea
-                rows={10}
-                placeholder="Lyrics will appear here, or write them manually…"
-                className={`${quietField} min-h-64 font-mono text-xs leading-relaxed`}
-                {...lyricsField}
-                onChange={(e) => {
-                  lyricsField.onChange(e);
-                  scheduleAutoSave({
-                    ...getValues(),
-                    lyrics: e.target.value,
-                  });
-                }}
-              />
-            </div>
           </FieldLine>
 
           {errors.root?.message && (

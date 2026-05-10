@@ -5,6 +5,7 @@ import { generateStorySong } from "@/lib/ai/song";
 import { GenerationError } from "@/lib/ai/songScript";
 import { OpenRouterError } from "@/lib/ai/openrouter";
 import { presignedGetUrl } from "@/lib/storage";
+import { songGenerateSchema } from "@/lib/validation";
 import { jsonError } from "@/lib/server";
 
 export const dynamic = "force-dynamic";
@@ -13,10 +14,21 @@ export const maxDuration = 300;
 
 type Ctx = { params: Promise<{ worldId: string; storyId: string }> };
 
-export async function POST(_req: Request, { params }: Ctx) {
+export async function POST(req: Request, { params }: Ctx) {
   const { worldId, storyId } = await params;
+  const body = await req.json().catch(() => null);
+  const parsed = songGenerateSchema.safeParse(body);
+  if (!parsed.success) {
+    return jsonError(400, "Invalid input", parsed.error.flatten());
+  }
+
   try {
-    const { id } = await generateStorySong({ worldId, storyId });
+    const { id } = await generateStorySong({
+      worldId,
+      storyId,
+      lengthSeconds: parsed.data.lengthSeconds,
+      lyrics: parsed.data.lyrics,
+    });
     const [row] = await db.select().from(storySongs).where(eq(storySongs.id, id));
     return Response.json(
       {
