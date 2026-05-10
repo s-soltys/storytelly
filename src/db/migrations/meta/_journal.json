@@ -50,6 +50,13 @@
       "when": 1778452863177,
       "tag": "0006_overjoyed_donald_blake",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1778456204947,
+      "tag": "0007_solid_thunderbird",
+      "breakpoints": true
     }
   ]
 }

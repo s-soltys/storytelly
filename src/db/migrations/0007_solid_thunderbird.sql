@@ -1,0 +1,2 @@
+ALTER TABLE "story_songs" DROP CONSTRAINT "story_songs_length_seconds_check";--> statement-breakpoint
+ALTER TABLE "story_songs" ADD CONSTRAINT "story_songs_length_seconds_check" CHECK ("story_songs"."length_seconds" IS NULL OR "story_songs"."source" = 'uploaded' OR ("story_songs"."length_seconds" % 15 = 0 AND "story_songs"."length_seconds" BETWEEN 30 AND 180));

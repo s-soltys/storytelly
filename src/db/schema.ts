@@ -172,7 +172,7 @@ export const storySongs = pgTable(
     index("story_songs_story_idx").on(t.storyId, t.createdAt.desc()),
     check(
       "story_songs_length_seconds_check",
-      sql`${t.lengthSeconds} IS NULL OR (${t.lengthSeconds} % 15 = 0 AND ${t.lengthSeconds} BETWEEN 30 AND 180)`,
+      sql`${t.lengthSeconds} IS NULL OR ${t.source} = 'uploaded' OR (${t.lengthSeconds} % 15 = 0 AND ${t.lengthSeconds} BETWEEN 30 AND 180)`,
     ),
   ],
 );

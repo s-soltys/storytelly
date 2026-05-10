@@ -38,6 +38,8 @@ export async function callOpenRouter(args: {
   apiKey: string;
   model: string;
   messages: ChatMessage[];
+  responseFormat?: { type: "json_object" };
+  maxTokens?: number;
   signal?: AbortSignal;
 }): Promise<OpenRouterResult> {
   const res = await fetch(ENDPOINT, {
@@ -50,6 +52,8 @@ export async function callOpenRouter(args: {
     body: JSON.stringify({
       model: args.model,
       messages: args.messages,
+      response_format: args.responseFormat,
+      max_tokens: args.maxTokens,
       usage: { include: true },
     }),
     signal: args.signal,

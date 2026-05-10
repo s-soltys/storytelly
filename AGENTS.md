@@ -80,7 +80,7 @@ src/
 
 ### Naming rules (business)
 - Character and location `name` is **immutable after creation** and **unique per world**. PATCH zod schemas omit `name` deliberately — keep it that way.
-- Song length: optional integer seconds, multiple of 15, between 30 and 180 inclusive. Enforced by Postgres CHECK constraint *and* zod when present.
+- Song length: optional integer seconds. For generated songs, multiple of 15, between 30 and 180 inclusive. Uploaded songs may have any length. Enforced by Postgres CHECK constraint and zod.
 - Stories have editable `name`, `description`, and parameter selections; existing stories autosave these fields inline. Lyrics and length belong to generated songs, not stories.
 - Story songs are generated from all parent datapoints: world fields, selected characters/locations, story name/description, chosen song length, optional song lyrics, and available references.
 
