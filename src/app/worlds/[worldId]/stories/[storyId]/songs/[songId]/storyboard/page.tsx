@@ -19,6 +19,7 @@ export default function StoryboardPage() {
   const [subtitles, setSubtitles] = useState("");
   const [sections, setSections] = useState<SongSectionDto[]>([]);
   const [isSubtitlesOpen, setIsSubtitlesOpen] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
 
   const songs = useQuery({
     queryKey: ["story-songs", storyId],
@@ -33,6 +34,38 @@ export default function StoryboardPage() {
       setSections(song.sections || []);
     }
   }, [song]);
+
+  const activeSection = sections.find(
+    (s) => currentTime >= s.startSeconds && currentTime < s.endSeconds
+  );
+
+  // Simple SRT parser to find active subtitle
+  const parseSRT = (srt: string) => {
+    const blocks = srt.trim().split(/\n\s*\n/);
+    return blocks.map((block) => {
+      const lines = block.split("\n");
+      if (lines.length < 3) return null;
+      const timeMatch = lines[1].match(/(\d{2}:\d{2}:\d{2},\d{3}) --> (\d{2}:\d{2}:\d{2},\d{3})/);
+      if (!timeMatch) return null;
+
+      const toSeconds = (t: string) => {
+        const [h, m, s] = t.split(":");
+        const [sec, ms] = s.split(",");
+        return parseInt(h) * 3600 + parseInt(m) * 60 + parseInt(sec) + parseInt(ms) / 1000;
+      };
+
+      return {
+        start: toSeconds(timeMatch[1]),
+        end: toSeconds(timeMatch[2]),
+        text: lines.slice(2).join(" "),
+      };
+    }).filter(Boolean) as Array<{ start: number; end: number; text: string }>;
+  };
+
+  const parsedSubtitles = parseSRT(subtitles);
+  const activeSubtitle = parsedSubtitles.find(
+    (s) => currentTime >= s.start && currentTime < s.end
+  );
 
   const update = useMutation({
     mutationFn: (body: Partial<StorySongDto>) =>
@@ -162,7 +195,53 @@ export default function StoryboardPage() {
                 </p>
               </div>
             </div>
-            <audio controls src={song.url} className="h-8 w-full" />
+
+            {/* Interactive Preview */}
+            <div className="relative aspect-video overflow-hidden rounded-[var(--radius-control)] border border-[var(--color-accent)]/30 bg-black/60 shadow-inner flex flex-col justify-center items-center text-center group">
+              {activeSection ? (
+                <div className="px-8 space-y-3 animate-in fade-in zoom-in-95 duration-500">
+                  <div className="inline-block px-3 py-1 rounded-full bg-[var(--color-accent)]/10 border border-[var(--color-accent)]/20 text-[var(--color-accent)] font-mono text-[11px] uppercase tracking-[0.2em] mb-2">
+                    {formatSeconds(activeSection.startSeconds)} — {formatSeconds(activeSection.endSeconds)}
+                  </div>
+                  <p className="text-lg md:text-xl font-medium leading-relaxed max-w-2xl text-[var(--color-fg)]">
+                    {activeSection.description}
+                  </p>
+                  <p className="text-[11px] uppercase tracking-[0.15em] text-[var(--color-muted)] font-mono">
+                    Mood: {activeSection.mood}
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2 opacity-50">
+                  <Music className="h-6 w-6 mx-auto text-[var(--color-muted)] mb-2" />
+                  <p className="text-xs text-[var(--color-muted)] font-mono uppercase tracking-[0.2em]">
+                    {currentTime === 0 ? "Press play to preview storyboard" : "Storyboard complete"}
+                  </p>
+                </div>
+              )}
+
+              {/* Subtitle Overlay */}
+              {activeSubtitle && (
+                <div className="absolute bottom-10 left-0 right-0 px-12 animate-in slide-in-from-bottom-2 duration-300">
+                  <p className="inline-block px-4 py-1.5 bg-black/70 rounded text-sm md:text-base text-white font-medium border border-white/10 shadow-lg leading-snug">
+                    {activeSubtitle.text}
+                  </p>
+                </div>
+              )}
+              
+              {/* Subtle Progress bar overlay */}
+              {song?.lengthSeconds && (
+                <div className="absolute bottom-0 left-0 h-1 bg-[var(--color-accent)]/40 transition-all duration-100 ease-linear shadow-[0_0_10px_var(--color-accent)]" 
+                     style={{ width: `${Math.min((currentTime / song.lengthSeconds) * 100, 100)}%` }} 
+                />
+              )}
+            </div>
+
+            <audio 
+              controls 
+              src={song.url} 
+              className="h-8 w-full"
+              onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
+            />
 
             {analyze.error && (
               <p className="text-xs text-[var(--color-danger)]">
