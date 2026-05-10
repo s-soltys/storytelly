@@ -32,14 +32,13 @@ export async function PATCH(req: Request, { params }: Ctx) {
     return jsonError(404, "Story not found");
   }
   const body = await req.json().catch(() => null);
-  if (!body || typeof body !== "object" || !("archived" in body)) {
-    return jsonError(400, "Expected archived flag");
+  if (!body || typeof body !== "object") {
+    return jsonError(400, "Expected JSON body");
   }
 
-  const archived = Boolean((body as { archived: unknown }).archived);
   const [updated] = await db
     .update(storySongs)
-    .set({ archived, updatedAt: new Date() })
+    .set({ ...body, updatedAt: new Date() })
     .where(and(eq(storySongs.id, songId), eq(storySongs.storyId, storyId)))
     .returning();
 

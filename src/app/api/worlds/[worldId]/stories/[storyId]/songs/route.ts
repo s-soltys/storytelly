@@ -35,6 +35,8 @@ async function songDto(row: typeof storySongs.$inferSelect) {
     lyrics: row.lyrics,
     model: row.model,
     transcript: row.transcript,
+    subtitles: row.subtitles,
+    sections: row.sections,
     costUsd: row.costUsd,
     archived: row.archived,
     createdAt: row.createdAt,
