@@ -8,7 +8,6 @@ import {
   stories,
   storyCharacters,
   storyLocations,
-  storyScripts,
   worlds,
 } from "@/db/schema";
 import { callOpenRouter, type ChatMessage, type ChatPart } from "./openrouter";
@@ -19,7 +18,12 @@ const MAX_IMAGES_PER_CHARACTER = 3;
 const MAX_IMAGES_PER_LOCATION = 1;
 
 export type GenerationContext = {
-  story: { id: string; description: string; lengthSeconds: number };
+  story: {
+    id: string;
+    name: string;
+    description: string;
+    lengthSeconds: number;
+  };
   world: { name: string; artStyle: string; description: string };
   storyCharacters: Array<{
     name: string;
@@ -43,10 +47,10 @@ export class GenerationError extends Error {
   }
 }
 
-export async function generateSongScript(args: {
+export async function generateLyrics(args: {
   worldId: string;
   storyId: string;
-}): Promise<{ id: string }> {
+}): Promise<{ lyrics: string }> {
   const ctx = await loadContext(args);
 
   const [config] = await db.select().from(settingsTable).limit(1);
@@ -57,29 +61,18 @@ export async function generateSongScript(args: {
       "OpenRouter API key is not configured. Add one in settings.",
     );
   }
-  const model = getModelForTask("song_script", config?.taskModels ?? {});
+  const model = getModelForTask("lyrics", config?.taskModels ?? {});
 
-  const messages = await buildSongScriptMessages(ctx);
+  const messages = await buildLyricsMessages(ctx);
 
   const result = await callOpenRouter({ apiKey, model, messages });
 
-  const [row] = await db
-    .insert(storyScripts)
-    .values({
-      storyId: ctx.story.id,
-      model,
-      prompt: serializePromptForStorage(messages),
-      script: result.text,
-      tokensIn: result.usage.promptTokens,
-      tokensOut: result.usage.completionTokens,
-      costUsd:
-        result.usage.costUsd != null
-          ? result.usage.costUsd.toString()
-          : null,
-    })
-    .returning({ id: storyScripts.id });
+  await db
+    .update(stories)
+    .set({ lyrics: result.text, updatedAt: new Date() })
+    .where(and(eq(stories.id, ctx.story.id), eq(stories.worldId, args.worldId)));
 
-  return row;
+  return { lyrics: result.text };
 }
 
 async function loadContext(args: {
@@ -147,6 +140,7 @@ async function loadContext(args: {
   return {
     story: {
       id: story.id,
+      name: story.name,
       description: story.description,
       lengthSeconds: story.lengthSeconds,
     },
@@ -168,18 +162,18 @@ async function loadContext(args: {
   };
 }
 
-export async function buildSongScriptMessages(
+export async function buildLyricsMessages(
   ctx: GenerationContext,
 ): Promise<ChatMessage[]> {
   const system = [
-    "You are a song-script writer for short AI-generated music videos.",
-    "Output a single song script. Do NOT add prose commentary, headings, or markdown fences.",
+    "You are a lyricist writing lyrics for a short AI-generated music video.",
+    "Output lyrics only. Do NOT add prose commentary, explanations, or markdown fences.",
     "Format rules:",
-    "- Use [bracketed cues] for sound design, instrumentation, mood shifts, ambience, transitions.",
-    "- Place timing markers like [00:00], [00:15] at the start of each section, aligned to the requested length.",
-    "- Speaker lines must be prefixed with the character's NAME in uppercase followed by a colon (e.g. JENSON: ...).",
-    "- Pace the script so the total runtime matches the requested length in seconds.",
-    "- Keep the emotional tone consistent with the world's art style and the story brief.",
+    "- Use compact song sections like [Verse], [Pre-Chorus], [Chorus], [Bridge], or [Outro] where useful.",
+    "- Keep stage directions sparse; lyrics should be singable, not a screenplay.",
+    "- Let named characters, locations, and world details influence imagery and voice.",
+    "- Pace the lyrics for the requested song length.",
+    "- Keep the emotional tone consistent with the world's art style and the story.",
   ].join("\n");
 
   const userParts: ChatPart[] = [];
@@ -242,6 +236,8 @@ export async function buildSongScriptMessages(
     type: "text",
     text: [
       "# STORY BRIEF",
+      `Title: ${ctx.story.name}`,
+      "",
       ctx.story.description,
       "",
       `Target length: ${ctx.story.lengthSeconds} seconds.`,
@@ -250,33 +246,11 @@ export async function buildSongScriptMessages(
 
   userParts.push({
     type: "text",
-    text: "Write the song script now. Output the script only.",
+    text: "Write the lyrics now. Output lyrics only.",
   });
 
   return [
     { role: "system", content: system },
     { role: "user", content: userParts },
   ];
-}
-
-function serializePromptForStorage(messages: ChatMessage[]): string {
-  // Strip image data URLs so the persisted prompt stays small/readable.
-  const safe = messages.map((m) => {
-    if (m.role === "user" && Array.isArray(m.content)) {
-      return {
-        role: m.role,
-        content: m.content.map((part) => {
-          if (part.type === "image_url") {
-            return {
-              type: "image_url",
-              image_url: { url: "[image elided]" },
-            };
-          }
-          return part;
-        }),
-      };
-    }
-    return m;
-  });
-  return JSON.stringify(safe, null, 2);
 }

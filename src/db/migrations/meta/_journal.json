@@ -15,6 +15,13 @@
       "when": 1778427627273,
       "tag": "0001_bitter_devos",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1778449421806,
+      "tag": "0002_tearful_komodo",
+      "breakpoints": true
     }
   ]
 }

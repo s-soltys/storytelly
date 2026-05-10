@@ -143,7 +143,7 @@ export default function WorldPage() {
           items={stories.data?.map((s) => ({
             id: s.id,
             href: `/worlds/${worldId}/stories/${s.id}`,
-            title: `${s.lengthSeconds}s story`,
+            title: s.name,
             description: s.description,
             images: s.moodImages,
           }))}

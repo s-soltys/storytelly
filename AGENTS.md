@@ -6,7 +6,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 # Storytelly — agent guide
 
-App for managing **worlds**, **characters**, **locations**, and **stories** that will later drive AI-generated music videos. AI generation, model selection, and cost tracking are deliberately out of scope today; the schema must keep them easy to add.
+App for managing **worlds**, **characters**, **locations**, **stories**, and one editable lyrics draft per story for AI-generated music videos. Lyrics generation is in scope via OpenRouter; broader music/video generation, per-world model selection, and cost tracking remain future work.
 
 ## Stack — what to reach for
 
@@ -69,6 +69,7 @@ src/
 ### Naming rules (business)
 - Character and location `name` is **immutable after creation** and **unique per world**. PATCH zod schemas omit `name` deliberately — keep it that way.
 - Story length: integer seconds, multiple of 15, between 30 and 180 inclusive. Enforced by Postgres CHECK constraint *and* zod.
+- Stories have editable `name`, `description`, parameter selections, and `lyrics`; existing stories autosave these fields inline. Lyrics are one-per-story and may be generated or manually edited.
 
 ### Styling
 - Use the CSS variables defined in [src/app/globals.css](src/app/globals.css): `--color-bg`, `--color-surface`, `--color-fg`, `--color-accent` (magenta), etc. Don't introduce new colors casually.
@@ -77,6 +78,7 @@ src/
 - Treat entity pages as compact workspaces, not document-style forms. Prefer dense two-column layouts on desktop, narrow left labels, quiet field surfaces, and small side panels for image uploaders.
 - Inline editable fields should blend into the surrounding layout: use low-contrast backgrounds/borders by default, visible focus/hover states, and compact status text for autosave. Avoid large bordered form cards unless creating a brand-new entity.
 - Do not create separate edit views for worlds, characters, locations, or stories when the entity already exists. Display and editing happen in the same view; changes autosave after short debounce where the record already exists.
+- AI-generated lyrics are destructive replacement of the story's single `lyrics` field. Confirm before regenerating when lyrics already exist, then allow manual edits to autosave like any other story field.
 - Keep repeated lists compact. Use small row/card padding, short section headers, and image thumbnails that support scanning instead of dominating the page.
 - Preserve immutable-field rules visually. Character/location names are locked after creation; show them as locked/read-only rather than adding name PATCH support.
 
@@ -105,6 +107,6 @@ Verify your change builds before reporting done: `npm run typecheck && npm run b
 
 ## Future scope (don't build yet, but design with it in mind)
 
-- AI music / scene / video generation, likely via OpenRouter.
+- AI music / scene / video generation beyond lyrics, likely via OpenRouter.
 - Per-world model selection.
 - Cost tracking per world and per story (will need an `ai_calls` table joined on `worlds`/`stories`).

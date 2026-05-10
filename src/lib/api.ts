@@ -68,8 +68,10 @@ export type LocationDto = CharacterDto;
 export type StoryDto = {
   id: string;
   worldId: string;
+  name: string;
   description: string;
   lengthSeconds: number;
+  lyrics: string;
   createdAt: string;
   characterIds?: string[];
   locationIds?: string[];
@@ -81,15 +83,4 @@ export type SettingsDto = {
   openrouterApiKeyConfigured: boolean;
   taskModels: Record<string, string>;
   effectiveTaskModels: Record<string, string>;
-};
-
-export type StoryScriptDto = {
-  id: string;
-  storyId: string;
-  model: string;
-  script: string;
-  tokensIn: number | null;
-  tokensOut: number | null;
-  costUsd: string | null;
-  createdAt: string;
 };

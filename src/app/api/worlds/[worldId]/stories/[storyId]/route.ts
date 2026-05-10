@@ -8,13 +8,12 @@ export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ worldId: string; storyId: string }> };
 
-export async function GET(_req: Request, { params }: Ctx) {
-  const { worldId, storyId } = await params;
+async function loadStoryDto(worldId: string, storyId: string) {
   const [story] = await db
     .select()
     .from(stories)
     .where(and(eq(stories.id, storyId), eq(stories.worldId, worldId)));
-  if (!story) return jsonError(404, "Story not found");
+  if (!story) return null;
 
   const [chars, locs, moodImages] = await Promise.all([
     db
@@ -28,12 +27,19 @@ export async function GET(_req: Request, { params }: Ctx) {
     loadImages("story_mood", story.id),
   ]);
 
-  return Response.json({
+  return {
     ...story,
     characterIds: chars.map((c) => c.characterId),
     locationIds: locs.map((l) => l.locationId),
     moodImages,
-  });
+  };
+}
+
+export async function GET(_req: Request, { params }: Ctx) {
+  const { worldId, storyId } = await params;
+  const story = await loadStoryDto(worldId, storyId);
+  if (!story) return jsonError(404, "Story not found");
+  return Response.json(story);
 }
 
 export async function PATCH(req: Request, { params }: Ctx) {
@@ -82,7 +88,9 @@ export async function PATCH(req: Request, { params }: Ctx) {
   });
 
   if (!result) return jsonError(404, "Story not found");
-  return new Response(null, { status: 204 });
+  const story = await loadStoryDto(worldId, storyId);
+  if (!story) return jsonError(404, "Story not found");
+  return Response.json(story);
 }
 
 export async function DELETE(_req: Request, { params }: Ctx) {

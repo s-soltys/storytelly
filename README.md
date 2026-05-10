@@ -2,7 +2,7 @@
 
 Manage **worlds**, **characters**, **locations**, and **stories** that will later drive AI-generated music videos.
 
-> Status: scaffold complete — CRUD over the four entities works end-to-end. AI generation is on the roadmap; nothing is wired up yet.
+> Status: CRUD over the four entities works end-to-end, with one editable AI-generated lyrics draft per story.
 
 ## Quickstart
 
@@ -67,6 +67,7 @@ S3_BUCKET=...
 ## Roadmap
 
 - AI music generation from a world's context
+- Lyrics generation is already wired per story via OpenRouter
 - Scene generation for stories (text + reference images)
 - Video clip generation from scene + character refs
 - Per-world AI model selection

@@ -1,5 +1,5 @@
 export const TASK_DEFAULTS = {
-  song_script: "google/gemini-2.5-pro",
+  lyrics: "google/gemini-2.5-pro",
 } as const;
 
 export type AiTask = keyof typeof TASK_DEFAULTS;

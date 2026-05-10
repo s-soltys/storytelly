@@ -65,8 +65,10 @@ export const stories = pgTable(
     worldId: uuid("world_id")
       .notNull()
       .references(() => worlds.id, { onDelete: "cascade" }),
+    name: text("name").notNull().default("Untitled story"),
     description: text("description").notNull(),
     lengthSeconds: integer("length_seconds").notNull(),
+    lyrics: text("lyrics").notNull().default(""),
     ...timestamps,
   },
   (t) => [

@@ -26,6 +26,7 @@ export const locationCreateSchema = characterCreateSchema;
 export const locationUpdateSchema = characterUpdateSchema;
 
 export const storyCreateSchema = z.object({
+  name: z.string().trim().min(1, "Name is required").max(120),
   description: z.string().trim().min(1, "Description is required"),
   lengthSeconds: z
     .number()
@@ -35,6 +36,7 @@ export const storyCreateSchema = z.object({
     }),
   characterIds: z.array(z.string().uuid()).min(1, "Pick at least one character"),
   locationIds: z.array(z.string().uuid()).default([]),
+  lyrics: z.string().trim().default(""),
 });
 
 export const storyUpdateSchema = storyCreateSchema.partial();

@@ -18,11 +18,10 @@ import {
   type StoryDto,
 } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/input";
+import { Input, Textarea } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ImageUploader } from "@/components/ImageUploader";
-import { SongScriptsPanel } from "@/components/SongScriptsPanel";
-import { ArrowLeft, ImageIcon, Trash2 } from "lucide-react";
+import { ArrowLeft, ImageIcon, Music, RotateCw, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type Mode =
@@ -105,15 +104,18 @@ export function StoryForm(props: Mode) {
     getValues,
     handleSubmit,
     reset,
+    setValue,
     setError,
     formState: { errors, isSubmitting },
   } = useForm<StoryCreate>({
     resolver: zodResolver(storyCreateSchema),
     defaultValues: {
+      name: "",
       description: "",
       lengthSeconds: 60,
       characterIds: [],
       locationIds: [],
+      lyrics: "",
     },
   });
   const [saveState, setSaveState] = useState<SaveState>("idle");
@@ -124,10 +126,12 @@ export function StoryForm(props: Mode) {
   useEffect(() => {
     if (props.kind === "edit" && existing.data) {
       const values = {
+        name: existing.data.name,
         description: existing.data.description,
         lengthSeconds: existing.data.lengthSeconds,
         characterIds: existing.data.characterIds ?? [],
         locationIds: existing.data.locationIds ?? [],
+        lyrics: existing.data.lyrics ?? "",
       };
       savedValues.current = values;
       reset(values);
@@ -175,12 +179,78 @@ export function StoryForm(props: Mode) {
     },
   });
 
+  const generateLyrics = useMutation({
+    mutationFn: async () => {
+      if (props.kind !== "edit") throw new Error("Create the story first.");
+      if (saveTimer.current) window.clearTimeout(saveTimer.current);
+
+      const parsed = storyCreateSchema.safeParse(getValues());
+      if (!parsed.success) {
+        throw new Error("Complete the story fields before generating lyrics.");
+      }
+
+      saveVersion.current += 1;
+      setSaveState("saving");
+      const updated = await api.patch<StoryDto>(
+        `/api/worlds/${worldId}/stories/${props.storyId}`,
+        parsed.data,
+      );
+      savedValues.current = parsed.data;
+      qc.setQueryData(["story", props.storyId], (prev: StoryDto | undefined) =>
+        prev
+          ? {
+              ...prev,
+              ...updated,
+              name: parsed.data.name,
+              description: parsed.data.description,
+              lengthSeconds: parsed.data.lengthSeconds,
+              lyrics: parsed.data.lyrics,
+              characterIds: parsed.data.characterIds,
+              locationIds: parsed.data.locationIds ?? [],
+              moodImages: prev.moodImages,
+            }
+          : prev,
+      );
+
+      return api.post<{ lyrics: string }>(
+        `/api/worlds/${worldId}/stories/${
+          props.storyId
+        }/lyrics`,
+        {},
+      );
+    },
+    onSuccess: ({ lyrics }) => {
+      if (props.kind !== "edit") return;
+      const next = { ...getValues(), lyrics };
+      setValue("lyrics", lyrics, { shouldDirty: false, shouldValidate: true });
+      savedValues.current = next;
+      setSaveState("saved");
+      qc.setQueryData(["story", props.storyId], (prev: StoryDto | undefined) =>
+        prev ? { ...prev, lyrics } : prev,
+      );
+      qc.setQueryData(["stories", worldId], (prev: StoryDto[] | undefined) =>
+        prev?.map((story) =>
+          story.id === props.storyId ? { ...story, lyrics } : story,
+        ),
+      );
+    },
+    onError: (e) => {
+      setError("root", { message: (e as Error).message });
+      setSaveState("error");
+    },
+  });
+
   const lengthSeconds = useWatch({ control, name: "lengthSeconds" });
+  const lyrics = useWatch({ control, name: "lyrics" });
+  const nameField = register("name");
   const descriptionField = register("description");
+  const lyricsField = register("lyrics");
 
   function sameValues(a: StoryCreate, b: StoryCreate) {
     return (
+      a.name === b.name &&
       a.description === b.description &&
+      (a.lyrics ?? "") === (b.lyrics ?? "") &&
       a.lengthSeconds === b.lengthSeconds &&
       a.characterIds.length === b.characterIds.length &&
       a.characterIds.every((id, idx) => id === b.characterIds[idx]) &&
@@ -222,6 +292,10 @@ export function StoryForm(props: Mode) {
             ? {
                 ...prev,
                 ...updated,
+                name: parsed.data.name,
+                description: parsed.data.description,
+                lengthSeconds: parsed.data.lengthSeconds,
+                lyrics: parsed.data.lyrics,
                 characterIds: parsed.data.characterIds,
                 locationIds: parsed.data.locationIds ?? [],
                 moodImages: prev.moodImages,
@@ -233,8 +307,10 @@ export function StoryForm(props: Mode) {
             story.id === props.storyId
               ? {
                   ...story,
+                  name: parsed.data.name,
                   description: parsed.data.description,
                   lengthSeconds: parsed.data.lengthSeconds,
+                  lyrics: parsed.data.lyrics,
                   characterIds: parsed.data.characterIds,
                   locationIds: parsed.data.locationIds ?? [],
                 }
@@ -293,6 +369,26 @@ export function StoryForm(props: Mode) {
           className="space-y-3 rounded-[var(--radius-control)] border border-[var(--color-border)]/70 bg-[var(--color-surface)]/45 p-3"
           onSubmit={handleSubmit(onSubmit)}
         >
+          <FieldLine label="Name">
+            <Input
+              placeholder="Song title"
+              className={`${quietField} h-9 font-mono text-lg uppercase tracking-widest`}
+              {...nameField}
+              onChange={(e) => {
+                nameField.onChange(e);
+                scheduleAutoSave({
+                  ...getValues(),
+                  name: e.target.value,
+                });
+              }}
+            />
+          </FieldLine>
+          {errors.name?.message && (
+            <p className="text-xs text-[var(--color-danger)] sm:pl-[6rem]">
+              {errors.name.message}
+            </p>
+          )}
+
           <FieldLine label="Story">
             <Textarea
               rows={5}
@@ -404,6 +500,65 @@ export function StoryForm(props: Mode) {
             />
           </FieldLine>
 
+          <FieldLine label="Lyrics">
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs text-[var(--color-muted)]">
+                  {props.kind === "create"
+                    ? "Create the story before generating lyrics."
+                    : "Generated from this world, selected cast, locations, and story."}
+                </p>
+                {props.kind === "edit" && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    disabled={generateLyrics.isPending}
+                    onClick={() => {
+                      if (
+                        lyrics?.trim() &&
+                        !confirm("Regenerate lyrics and replace the current text?")
+                      ) {
+                        return;
+                      }
+                      generateLyrics.mutate();
+                    }}
+                  >
+                    {generateLyrics.isPending ? (
+                      <>
+                        <RotateCw className="h-4 w-4 animate-spin" />
+                        Generating…
+                      </>
+                    ) : lyrics?.trim() ? (
+                      <>
+                        <RotateCw className="h-4 w-4" />
+                        Regenerate
+                      </>
+                    ) : (
+                      <>
+                        <Music className="h-4 w-4" />
+                        Generate
+                      </>
+                    )}
+                  </Button>
+                )}
+              </div>
+              <Textarea
+                rows={10}
+                placeholder="Lyrics will appear here, or write them manually…"
+                className={`${quietField} min-h-64 font-mono text-xs leading-relaxed`}
+                {...lyricsField}
+                onChange={(e) => {
+                  lyricsField.onChange(e);
+                  scheduleAutoSave({
+                    ...getValues(),
+                    lyrics: e.target.value,
+                  });
+                }}
+              />
+            </div>
+          </FieldLine>
+
           {errors.root?.message && (
             <p className="text-sm text-[var(--color-danger)]">
               {errors.root.message}
@@ -449,9 +604,6 @@ export function StoryForm(props: Mode) {
         )}
       </div>
 
-      {props.kind === "edit" && existing.data && (
-        <SongScriptsPanel worldId={worldId} storyId={props.storyId} />
-      )}
     </div>
   );
 }
