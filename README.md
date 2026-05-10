@@ -1,63 +1,62 @@
 # Storytelly
 
-App for managing internal worlds, characters, locations, and stories that will later drive AI-generated music videos.
+Manage **worlds**, **characters**, **locations**, and **stories** that will later drive AI-generated music videos.
 
-## Stack
+> Status: scaffold complete — CRUD over the four entities works end-to-end. AI generation is on the roadmap; nothing is wired up yet.
 
-- Next.js 16 (App Router) + React 19 + TypeScript
-- Tailwind CSS v4 (dark theme, magenta accent)
-- Drizzle ORM + Postgres 16
-- S3-compatible storage (MinIO locally → AWS S3 in prod)
-- TanStack Query, react-hook-form, zod
+## Quickstart
 
-## Getting started
+Prerequisites: **Node 20+**, **pnpm 10+**, and a running **Docker** daemon.
 
-1. **Bring up Postgres + MinIO** (requires Docker):
+```bash
+cp .env.example .env       # local-only credentials, no real secrets
+docker compose up -d       # postgres on :5432, minio on :9000 (api) / :9001 (console)
+pnpm install
+pnpm db:migrate            # apply the committed schema
+pnpm dev                   # http://localhost:3000
+```
 
-   ```bash
-   docker compose up -d
-   ```
+The first `docker compose up` also runs a one-shot `minio-init` job that creates the `storytelly` bucket. MinIO console: <http://localhost:9001> · login `storytelly` / `storytelly-secret`.
 
-   - Postgres: `localhost:5432` (user/pass/db: `storytelly`)
-   - MinIO API: `localhost:9000`, console: `localhost:9001` (user `storytelly`, pass `storytelly-secret`)
-   - The `storytelly` bucket is created automatically by the `minio-init` job.
+## What's in here
 
-2. **Copy env**:
+```
+src/
+  app/             Next.js App Router pages + API routes
+  db/              Drizzle schema, client, generated migrations
+  lib/             validation (zod), storage (S3 SDK), api helpers
+  components/      ui primitives, forms, ImageUploader
+docker-compose.yml  postgres + minio + bucket bootstrap
+```
 
-   ```bash
-   cp .env.example .env
-   ```
+Key files: [src/db/schema.ts](src/db/schema.ts), [src/lib/storage.ts](src/lib/storage.ts), [src/lib/validation.ts](src/lib/validation.ts), [src/app/globals.css](src/app/globals.css).
 
-3. **Install dependencies and run migrations**:
+## Tech stack
 
-   ```bash
-   pnpm install
-   pnpm db:push        # apply schema
-   ```
+- **Next.js 16** (App Router) · **React 19** · **TypeScript**
+- **Tailwind v4** — CSS-first `@theme`, dark theme with magenta accent
+- **Drizzle ORM** + **Postgres 16**
+- **S3-compatible storage** via `@aws-sdk/client-s3` (MinIO locally → AWS S3 in prod)
+- **TanStack Query**, **react-hook-form**, **zod**
 
-4. **Start the dev server**:
+## Common tasks
 
-   ```bash
-   pnpm dev
-   ```
+| | |
+|---|---|
+| Run app | `pnpm dev` |
+| Generate a migration after editing `src/db/schema.ts` | `pnpm db:generate` |
+| Apply migrations | `pnpm db:migrate` |
+| Browse the DB | `pnpm db:studio` |
+| Type-check | `pnpm typecheck` |
+| Lint | `pnpm lint` |
+| Production build | `pnpm build` |
 
-   Open <http://localhost:3000>.
+## Switching to AWS S3
 
-## Useful scripts
-
-- `pnpm db:generate` — generate a new migration from `src/db/schema.ts`
-- `pnpm db:push` — apply schema directly to the DB (dev only)
-- `pnpm db:migrate` — apply committed migrations (prod path)
-- `pnpm db:studio` — Drizzle Studio
-- `pnpm typecheck` — `tsc --noEmit`
-- `pnpm lint`
-
-## Switching to AWS S3 later
-
-The app talks to S3 via the AWS SDK; MinIO is only there to mimic S3 locally. To move to AWS, change these env vars and redeploy:
+The app talks to S3 through the AWS SDK; MinIO just mimics S3 locally. To deploy against AWS, change the env and redeploy — no code changes:
 
 ```env
-S3_ENDPOINT=                     # leave empty for AWS
+S3_ENDPOINT=                 # leave empty for AWS
 S3_FORCE_PATH_STYLE=false
 S3_REGION=eu-central-1
 S3_ACCESS_KEY=...
@@ -65,4 +64,13 @@ S3_SECRET_KEY=...
 S3_BUCKET=...
 ```
 
-No code changes required.
+## Roadmap
+
+- AI music generation from a world's context
+- Scene generation for stories (text + reference images)
+- Video clip generation from scene + character refs
+- Per-world AI model selection
+- Cost tracking per world and per story
+- Likely provider: OpenRouter
+
+See [AGENTS.md](AGENTS.md) for conventions and constraints when contributing.
