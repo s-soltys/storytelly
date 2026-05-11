@@ -52,6 +52,30 @@ export default function StoryboardPage() {
     },
   });
 
+  const createClip = useMutation({
+    mutationFn: (body: { sectionIndex: number; description: string }) =>
+      api.post<SongClipDto>(`/api/worlds/${worldId}/stories/${storyId}/songs/${songId}/clips`, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["story-songs", songId, "clips"] });
+    },
+  });
+
+  const updateClip = useMutation({
+    mutationFn: ({ id, description }: { id: string; description: string }) =>
+      api.patch<SongClipDto>(`/api/worlds/${worldId}/stories/${storyId}/songs/${songId}/clips/${id}`, { description }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["story-songs", songId, "clips"] });
+    },
+  });
+
+  const deleteClip = useMutation({
+    mutationFn: (id: string) =>
+      api.del(`/api/worlds/${worldId}/stories/${storyId}/songs/${songId}/clips/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["story-songs", songId, "clips"] });
+    },
+  });
+
   useEffect(() => {
     if (song) {
       setSubtitles(song.subtitles || "");
@@ -369,6 +393,19 @@ export default function StoryboardPage() {
                             <p className="font-mono text-[9px] uppercase tracking-widest text-[var(--color-accent)]/80">
                               Generated Clips:
                             </p>
+                            <button
+                              type="button"
+                              onClick={() => createClip.mutate({ sectionIndex: i, description: "New clip description..." })}
+                              className="text-[var(--color-accent)] hover:text-[var(--color-accent)]/80 transition-colors"
+                              disabled={createClip.isPending}
+                              title="Add new clip"
+                            >
+                              {createClip.isPending && createClip.variables?.sectionIndex === i ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <Plus className="h-3 w-3" />
+                              )}
+                            </button>
                           </div>
                           <div className="space-y-3">
                             {clips.filter(c => c.sectionIndex === i).map((clip) => {
@@ -376,23 +413,68 @@ export default function StoryboardPage() {
                               const isGeneratingImg = generateSingleImage.variables === clip.id && generateSingleImage.isPending;
 
                               return (
-                                <div key={clip.id} className="flex flex-col gap-2 rounded bg-[var(--color-surface)]/40 p-2 text-[10px]">
-                                  <p className="text-[var(--color-muted)] leading-relaxed">{clip.description}</p>
+                                <div key={clip.id} className="group flex flex-col gap-2 rounded bg-[var(--color-surface)]/40 p-2 text-[10px] border border-transparent hover:border-[var(--color-border)]/30 transition-all">
+                                  <div className="flex items-start justify-between gap-2">
+                                    <textarea
+                                      defaultValue={clip.description}
+                                      onBlur={(e) => {
+                                        if (e.target.value !== clip.description) {
+                                          updateClip.mutate({ id: clip.id, description: e.target.value });
+                                        }
+                                      }}
+                                      placeholder="Clip description..."
+                                      className="flex-1 bg-transparent leading-relaxed text-[var(--color-muted)] focus:text-[var(--color-fg)] focus:outline-none resize-none min-h-[40px] transition-colors"
+                                      rows={2}
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        if (confirm("Delete this clip and all its generated images?")) {
+                                          deleteClip.mutate(clip.id);
+                                        }
+                                      }}
+                                      className="opacity-0 group-hover:opacity-100 text-[var(--color-muted)] hover:text-[var(--color-danger)] transition-all p-1"
+                                      disabled={deleteClip.isPending}
+                                      title="Delete clip"
+                                    >
+                                      {deleteClip.isPending && deleteClip.variables === clip.id ? (
+                                        <Loader2 className="h-3 w-3 animate-spin" />
+                                      ) : (
+                                        <Trash2 className="h-3 w-3" />
+                                      )}
+                                    </button>
+                                  </div>
                                   
                                   {clipImage ? (
-                                    <div className="relative aspect-video w-full overflow-hidden rounded bg-black/50">
+                                    <div className="relative aspect-video w-full overflow-hidden rounded bg-black/50 group/img shadow-sm">
                                       {/* eslint-disable-next-line @next/next/no-img-element */}
                                       <img 
                                         src={clipImage.url} 
                                         alt="Clip" 
-                                        className="absolute inset-0 h-full w-full object-cover" 
+                                        className="absolute inset-0 h-full w-full object-cover transition-transform group-hover/img:scale-105 duration-700" 
                                       />
+                                      <div className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 group-hover/img:opacity-100 transition-opacity">
+                                        <Button
+                                          size="sm"
+                                          variant="secondary"
+                                          className="h-7 text-[9px] px-2 font-mono uppercase tracking-widest bg-black/40 hover:bg-black/80 border-white/20"
+                                          disabled={isGeneratingImg}
+                                          onClick={() => generateSingleImage.mutate(clip.id)}
+                                        >
+                                          {isGeneratingImg ? (
+                                            <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                                          ) : (
+                                            <ImageIcon className="h-3 w-3 mr-1" />
+                                          )}
+                                          Regenerate
+                                        </Button>
+                                      </div>
                                     </div>
                                   ) : (
                                     <Button
                                       size="sm"
                                       variant="secondary"
-                                      className="h-8 w-full text-[10px]"
+                                      className="h-8 w-full text-[10px] font-mono uppercase tracking-widest"
                                       disabled={isGeneratingImg}
                                       onClick={() => generateSingleImage.mutate(clip.id)}
                                     >
@@ -408,7 +490,7 @@ export default function StoryboardPage() {
                               );
                             })}
                             {clips.filter(c => c.sectionIndex === i).length === 0 && (
-                              <p className="text-[10px] text-[var(--color-muted)] italic">No clips generated.</p>
+                              <p className="text-[10px] text-[var(--color-muted)] italic py-2 px-1">No clips generated.</p>
                             )}
                           </div>
                         </div>
