@@ -266,8 +266,8 @@ function buildClipIdeasMessages(ctx: any, sections: SongSection[], totalLength: 
     "",
     "CRITICAL RULES:",
     "1. DO NOT MODIFY THE TIMESTAMPS. Keep startSeconds and endSeconds exactly as provided.",
-    "2. CLIP IDEAS PROPORTION: You MUST generate 1 unique clip idea for every 2 to 5 seconds of the section's duration. Use the `_durationCalc` and `_targetClipsCalc` fields to do the math first based on the scene's dynamism, then provide exactly that number of clips in the `clipIdeas` array.",
-    "3. CINEMATOGRAPHY: Clip descriptions should be longer. Define the starting point (as is), describe what happens during the clip, and add a length suggestion (3-5 seconds).",
+    "2. CLIP IDEAS PROPORTION: You MUST generate 1 unique clip idea for every 3 to 7 seconds of the section's duration. Use the `_durationCalc` and `_targetClipsCalc` fields to do the math first based on the scene's dynamism, then provide exactly that number of clips in the `clipIdeas` array. Static and calm scenes should have longer clips, dynamic and intense scenes should have more frequent cuts.",
+    "3. CINEMATOGRAPHY: Clip descriptions should be 2-5 sentences. Define the starting point (as is), describe what happens during the clip, and add a length suggestion (3-7 seconds).",
     "4. CONSISTENCY: Ensure the ideas perfectly match the characters, scenes, and verbose descriptions of that section.",
     "5. FORMAT: Output a SINGLE JSON object with a \"sections\" array.",
   ].join("\n");
