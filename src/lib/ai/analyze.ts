@@ -1,5 +1,5 @@
 import { db } from "@/db/client";
-import { settings as settingsTable, storySongs, aiCalls, type SongSection } from "@/db/schema";
+import { settings as settingsTable, storySongs, aiCalls, songClips, type SongSection } from "@/db/schema";
 import { getObjectBuffer } from "@/lib/storage";
 import { eq } from "drizzle-orm";
 import { imageToDataUrl } from "./images";
@@ -165,13 +165,35 @@ export async function analyzeSongStructure(args: {
     durationMs: Date.now() - pass2Start,
   });
 
+  // Save the sections WITHOUT clipIdeas
   await db
     .update(storySongs)
     .set({
-      sections: finalSections,
+      sections: initialSections,
       prompt: serializePromptForStorage(messages) + "\n\n---\n\n" + serializePromptForStorage(pass2Messages),
     })
     .where(eq(storySongs.id, song.id));
+
+  // Clear existing clips and insert new ones
+  await db.delete(songClips).where(eq(songClips.songId, song.id));
+  
+  const allClipsToInsert = [];
+  for (let i = 0; i < finalSections.length; i++) {
+    const section = finalSections[i];
+    const clipIdeas: string[] = (section as any).clipIdeas || [];
+    for (let j = 0; j < clipIdeas.length; j++) {
+      allClipsToInsert.push({
+        songId: song.id,
+        sectionIndex: i,
+        description: clipIdeas[j],
+        position: j,
+      });
+    }
+  }
+
+  if (allClipsToInsert.length > 0) {
+    await db.insert(songClips).values(allClipsToInsert);
+  }
 }
 
 function buildThematicAnalysisMessages(ctx: any, audioBase64: string, totalLength: number): ChatMessage[] {

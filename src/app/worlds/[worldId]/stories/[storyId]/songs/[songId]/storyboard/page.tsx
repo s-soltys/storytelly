@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, type StorySongDto, type SongSectionDto } from "@/lib/api";
-import { ArrowLeft, Music, Wand2, FileAudio, FileText, LayoutList, Loader2, Check, ChevronDown, ChevronUp, Plus, Trash2 } from "lucide-react";
+import { api, type StorySongDto, type SongSectionDto, type SongClipDto } from "@/lib/api";
+import { ArrowLeft, Music, Wand2, FileAudio, FileText, LayoutList, Loader2, Check, ChevronDown, ChevronUp, Plus, Trash2, Image as ImageIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useEffect, useState, useCallback } from "react";
 
@@ -27,6 +27,30 @@ export default function StoryboardPage() {
       api.get<StorySongDto[]>(`/api/worlds/${worldId}/stories/${storyId}/songs`),
   });
   const song = songs.data?.find((item) => item.id === songId);
+
+  const clipsQuery = useQuery({
+    queryKey: ["story-songs", songId, "clips"],
+    queryFn: () =>
+      api.get<SongClipDto[]>(`/api/worlds/${worldId}/stories/${storyId}/songs/${songId}/clips`),
+    enabled: !!song,
+  });
+  const clips = clipsQuery.data || [];
+
+  const generateBulkImages = useMutation({
+    mutationFn: () =>
+      api.post<{ count: number }>(`/api/worlds/${worldId}/stories/${storyId}/songs/${songId}/clips/generate-all-images`, {}),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["story-songs", songId, "clips"] });
+    },
+  });
+
+  const generateSingleImage = useMutation({
+    mutationFn: (clipId: string) =>
+      api.post<{ url: string }>(`/api/worlds/${worldId}/stories/${storyId}/songs/${songId}/clips/${clipId}/generate-image`, {}),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["story-songs", songId, "clips"] });
+    },
+  });
 
   useEffect(() => {
     if (song) {
@@ -131,28 +155,6 @@ export default function StoryboardPage() {
     setSections(next);
   };
 
-  const updateClipIdea = (sIndex: number, cIndex: number, value: string) => {
-    const next = [...sections];
-    const nextClips = [...(next[sIndex].clipIdeas || [])];
-    nextClips[cIndex] = value;
-    next[sIndex] = { ...next[sIndex], clipIdeas: nextClips };
-    setSections(next);
-  };
-
-  const addClipIdea = (sIndex: number) => {
-    const next = [...sections];
-    next[sIndex] = { ...next[sIndex], clipIdeas: [...(next[sIndex].clipIdeas || []), "New clip idea..."] };
-    setSections(next);
-  };
-
-  const deleteClipIdea = (sIndex: number, cIndex: number) => {
-    const next = [...sections];
-    const nextClips = [...(next[sIndex].clipIdeas || [])];
-    nextClips.splice(cIndex, 1);
-    next[sIndex] = { ...next[sIndex], clipIdeas: nextClips };
-    setSections(next);
-  };
-
   const formatSeconds = (totalSeconds: number) => {
     const mins = Math.floor(totalSeconds / 60);
     const secs = Math.floor(totalSeconds % 60);
@@ -182,6 +184,25 @@ export default function StoryboardPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {clips.length > 0 && (
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={generateBulkImages.isPending}
+              onClick={() => {
+                if (confirm("This will generate images for all clips that don't have one yet. It may take a while and incur costs. Continue?")) {
+                  generateBulkImages.mutate();
+                }
+              }}
+            >
+              {generateBulkImages.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : (
+                <ImageIcon className="h-4 w-4 mr-2" />
+              )}
+              {generateBulkImages.isPending ? "Generating..." : "Generate Missing Images"}
+            </Button>
+          )}
           <Button
             size="sm"
             variant="secondary"
@@ -346,33 +367,49 @@ export default function StoryboardPage() {
                         <div className="space-y-2">
                           <div className="flex items-center justify-between border-t border-[var(--color-border)]/10 pt-2">
                             <p className="font-mono text-[9px] uppercase tracking-widest text-[var(--color-accent)]/80">
-                              Clip Ideas:
+                              Generated Clips:
                             </p>
-                            <button
-                              type="button"
-                              onClick={() => addClipIdea(i)}
-                              className="text-[var(--color-accent)] hover:text-[var(--color-accent)]/80"
-                            >
-                              <Plus className="h-3 w-3" />
-                            </button>
                           </div>
-                          <div className="space-y-2">
-                            {(section.clipIdeas || []).map((clip, ci) => (
-                              <div key={ci} className="flex gap-2 border-l-2 border-[var(--color-accent)]/30 pl-2 group">
-                                <textarea
-                                  value={clip}
-                                  onChange={(e) => updateClipIdea(i, ci, e.target.value)}
-                                  className="h-10 flex-1 bg-transparent text-[10px] text-[var(--color-muted)] focus:outline-none resize-none"
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => deleteClipIdea(i, ci)}
-                                  className="opacity-0 group-hover:opacity-100 text-[var(--color-danger)] hover:text-[var(--color-danger)]/80 transition-opacity"
-                                >
-                                  <Trash2 className="h-3 w-3" />
-                                </button>
-                              </div>
-                            ))}
+                          <div className="space-y-3">
+                            {clips.filter(c => c.sectionIndex === i).map((clip) => {
+                              const clipImage = clip.images?.[0];
+                              const isGeneratingImg = generateSingleImage.variables === clip.id && generateSingleImage.isPending;
+
+                              return (
+                                <div key={clip.id} className="flex flex-col gap-2 rounded bg-[var(--color-surface)]/40 p-2 text-[10px]">
+                                  <p className="text-[var(--color-muted)] leading-relaxed">{clip.description}</p>
+                                  
+                                  {clipImage ? (
+                                    <div className="relative aspect-video w-full overflow-hidden rounded bg-black/50">
+                                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                                      <img 
+                                        src={`/api/images/${clipImage.id}`} 
+                                        alt="Clip" 
+                                        className="absolute inset-0 h-full w-full object-cover" 
+                                      />
+                                    </div>
+                                  ) : (
+                                    <Button
+                                      size="sm"
+                                      variant="secondary"
+                                      className="h-8 w-full text-[10px]"
+                                      disabled={isGeneratingImg}
+                                      onClick={() => generateSingleImage.mutate(clip.id)}
+                                    >
+                                      {isGeneratingImg ? (
+                                        <Loader2 className="h-3 w-3 animate-spin mr-2" />
+                                      ) : (
+                                        <ImageIcon className="h-3 w-3 mr-2" />
+                                      )}
+                                      Generate Image
+                                    </Button>
+                                  )}
+                                </div>
+                              );
+                            })}
+                            {clips.filter(c => c.sectionIndex === i).length === 0 && (
+                              <p className="text-[10px] text-[var(--color-muted)] italic">No clips generated.</p>
+                            )}
                           </div>
                         </div>
                       </div>

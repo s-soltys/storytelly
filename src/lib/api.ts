@@ -104,7 +104,15 @@ export type SongSectionDto = {
   mood: string;
   characters: string;
   scenes: string;
-  clipIdeas: string[];
+};
+
+export type SongClipDto = {
+  id: string;
+  songId: string;
+  sectionIndex: number;
+  description: string;
+  position: number;
+  images?: ImageDto[];
 };
 
 export type SettingsDto = {

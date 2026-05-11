@@ -103,6 +103,7 @@ export const imageOwnerKinds = [
   "character",
   "location",
   "story_mood",
+  "song_clip",
 ] as const;
 export type ImageOwnerKind = (typeof imageOwnerKinds)[number];
 
@@ -142,7 +143,6 @@ export type SongSection = {
   mood: string;
   characters: string;
   scenes: string;
-  clipIdeas: string[];
 };
 
 export const storySongs = pgTable(
@@ -174,6 +174,23 @@ export const storySongs = pgTable(
       "story_songs_length_seconds_check",
       sql`${t.lengthSeconds} IS NULL OR ${t.source} = 'uploaded' OR (${t.lengthSeconds} % 15 = 0 AND ${t.lengthSeconds} BETWEEN 30 AND 180)`,
     ),
+  ],
+);
+
+export const songClips = pgTable(
+  "song_clips",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    songId: uuid("song_id")
+      .notNull()
+      .references(() => storySongs.id, { onDelete: "cascade" }),
+    sectionIndex: integer("section_index").notNull(),
+    description: text("description").notNull(),
+    position: integer("position").notNull().default(0),
+    ...timestamps,
+  },
+  (t) => [
+    index("song_clips_song_idx").on(t.songId, t.sectionIndex, t.position),
   ],
 );
 
@@ -210,4 +227,5 @@ export type Story = typeof stories.$inferSelect;
 export type Image = typeof images.$inferSelect;
 export type Settings = typeof settings.$inferSelect;
 export type StorySong = typeof storySongs.$inferSelect;
+export type SongClip = typeof songClips.$inferSelect;
 export type AiCall = typeof aiCalls.$inferSelect;
