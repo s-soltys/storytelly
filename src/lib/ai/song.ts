@@ -11,6 +11,7 @@ import {
   storyLocations,
   storySongs,
   worlds,
+  aiCalls,
 } from "@/db/schema";
 import { putObject } from "@/lib/storage";
 import { imageToDataUrl } from "./images";
@@ -62,11 +63,25 @@ export async function generateStorySong(args: {
 
   const model = getModelForTask("song", config?.taskModels ?? {});
   const messages = await buildSongMessages(ctx);
+  const start = Date.now();
   const result = await callOpenRouterAudio({
     apiKey,
     model,
     messages,
     format: GENERATED_EXT,
+  });
+  const durationMs = Date.now() - start;
+
+  // Log the call
+  await db.insert(aiCalls).values({
+    worldId: args.worldId,
+    storyId: args.storyId,
+    task: "song",
+    model,
+    prompt: serializePromptForStorage(messages),
+    response: result.transcript || "[audio generated]",
+    costUsd: result.usage.costUsd != null ? result.usage.costUsd.toString() : null,
+    durationMs,
   });
 
   const s3Key = `stories/${ctx.story.id}/songs/${randomUUID()}.${GENERATED_EXT}`;

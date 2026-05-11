@@ -113,3 +113,16 @@ export type SettingsDto = {
   taskModels: Record<string, string>;
   effectiveTaskModels: Record<string, string>;
 };
+
+export type AiCallDto = {
+  id: string;
+  worldId: string;
+  storyId: string | null;
+  task: string;
+  model: string;
+  prompt: string | null;
+  response: string | null;
+  costUsd: string | null;
+  durationMs: number | null;
+  createdAt: string;
+};

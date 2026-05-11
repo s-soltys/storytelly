@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { analyzeSongStructure } from "@/lib/ai/analyze";
+import { transcribeSong } from "@/lib/ai/analyze";
 
 export async function POST(
   req: Request,
@@ -7,12 +7,12 @@ export async function POST(
 ) {
   try {
     const { worldId, storyId, songId } = await params;
-    await analyzeSongStructure({ worldId, storyId, songId });
+    await transcribeSong({ worldId, storyId, songId });
     return NextResponse.json({ success: true });
   } catch (err: any) {
-    console.error("Analysis error:", err);
+    console.error("Transcription error:", err);
     return NextResponse.json(
-      { error: err.message || "Failed to analyze song" },
+      { error: err.message || "Failed to transcribe song" },
       { status: err.status || 500 },
     );
   }

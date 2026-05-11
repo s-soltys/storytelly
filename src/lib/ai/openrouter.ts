@@ -18,10 +18,21 @@ export type OpenRouterUsage = {
   promptTokens: number | null;
   completionTokens: number | null;
   costUsd: number | null;
+  durationSeconds?: number | null;
 };
 
 export type OpenRouterResult = {
   text: string;
+  usage: OpenRouterUsage;
+};
+
+export type OpenRouterTranscriptionResult = {
+  text: string;
+  segments?: Array<{
+    start: number;
+    end: number;
+    text: string;
+  }>;
   usage: OpenRouterUsage;
 };
 
@@ -33,6 +44,8 @@ export type OpenRouterAudioResult = {
 };
 
 const ENDPOINT = "https://openrouter.ai/api/v1/chat/completions";
+const TRANSCRIPTION_ENDPOINT =
+  "https://openrouter.ai/api/v1/audio/transcriptions";
 
 export async function callOpenRouter(args: {
   apiKey: string;
@@ -89,6 +102,67 @@ export async function callOpenRouter(args: {
   }
 
   return { text, usage: extractUsage(data) };
+}
+
+export async function transcribeAudio(args: {
+  apiKey: string;
+  model: string;
+  audioBase64: string;
+  format: "mp3" | "wav" | "flac" | "opus";
+  language?: string;
+  prompt?: string;
+  signal?: AbortSignal;
+}): Promise<OpenRouterTranscriptionResult> {
+  const res = await fetch(TRANSCRIPTION_ENDPOINT, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${args.apiKey}`,
+      "X-Title": "Storytelly",
+    },
+    body: JSON.stringify({
+      model: args.model,
+      input_audio: {
+        data: args.audioBase64,
+        format: args.format,
+      },
+      response_format: "verbose_json",
+      timestamp_granularities: ["segment"],
+      language: args.language,
+      prompt: args.prompt,
+    }),
+    signal: args.signal,
+  });
+
+  const raw = await res.text();
+  if (!res.ok) {
+    throw new OpenRouterError(
+      `OpenRouter Transcription ${res.status}: ${raw.slice(0, 600)}`,
+      res.status,
+      raw,
+    );
+  }
+
+  let data: any;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    throw new OpenRouterError(
+      "OpenRouter returned non-JSON response",
+      res.status,
+      raw,
+    );
+  }
+
+  return {
+    text: data.text || "",
+    segments: data.segments?.map((s: any) => ({
+      start: s.start,
+      end: s.end,
+      text: s.text,
+    })),
+    usage: extractUsage(data),
+  };
 }
 
 export async function callOpenRouterAudio(args: {
@@ -214,5 +288,6 @@ function extractUsage(data: unknown): OpenRouterUsage {
     promptTokens: num(u.prompt_tokens),
     completionTokens: num(u.completion_tokens),
     costUsd: num(u.cost),
+    durationSeconds: num(u.seconds) || num(u.duration),
   };
 }

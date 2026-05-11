@@ -1,5 +1,5 @@
 import { db } from "@/db/client";
-import { settings as settingsTable, storySongs, type SongSection } from "@/db/schema";
+import { settings as settingsTable, storySongs, aiCalls, type SongSection } from "@/db/schema";
 import { getObjectBuffer } from "@/lib/storage";
 import { eq } from "drizzle-orm";
 import { imageToDataUrl } from "./images";
@@ -8,7 +8,7 @@ import { loadSongContext, serializePromptForStorage } from "./song";
 import { getModelForTask } from "./tasks";
 import { GenerationError } from "./songScript";
 
-export async function analyzeSong(args: {
+export async function transcribeSong(args: {
   worldId: string;
   storyId: string;
   songId: string;
@@ -28,159 +28,199 @@ export async function analyzeSong(args: {
 
   const [config] = await db.select().from(settingsTable).limit(1);
   const apiKey = config?.openrouterApiKey?.trim();
-  if (!apiKey) {
-    throw new GenerationError(
-      400,
-      "OpenRouter API key is not configured. Add one in settings.",
-    );
-  }
+  if (!apiKey) throw new GenerationError(400, "OpenRouter API key missing");
 
   const audioBytes = await getObjectBuffer(song.s3Key);
   const audioBase64 = Buffer.from(audioBytes).toString("base64");
+  const model = getModelForTask("analyze_song", config?.taskModels ?? {}); // Using the audio model
 
-  const model = getModelForTask("analyze_song", config?.taskModels ?? {});
-  const messages = await buildAnalysisMessages(ctx, audioBase64);
+  const officialDuration = song.lengthSeconds || 0;
 
+  const messages: ChatMessage[] = [
+    {
+      role: "system",
+      content: [
+        "You are a professional audio transcriber.",
+        "Your task is to generate a perfect verbatim SRT subtitle file for the provided audio.",
+        "",
+        "CRITICAL RULES:",
+        "1. FORMAT: Output raw SRT text ONLY. No markdown, no commentary, no JSON.",
+        "2. TIMING: Use standard SRT timestamps (00:00:00,000 --> 00:00:00,000).",
+        "3. PRECISION: Anchor timestamps to the audio. Identify the exact second vocals start.",
+        `4. DURATION: The song is EXACTLY ${officialDuration} seconds long. Do not exceed this.`,
+        "5. INTRO: Do NOT start subtitles at 00:00:00,000 unless singing starts immediately.",
+        "6. VERBATIM: Transcribe every word exactly as sung.",
+      ].join("\n"),
+    },
+    {
+      role: "user",
+      content: [
+        { type: "input_audio", input_audio: { data: audioBase64, format: "mp3" } },
+        { type: "text", text: `Transcribe the song "${ctx.story.name}" verbatim with accurate SRT timestamps. Full length: ${officialDuration}s. Reference lyrics: ${ctx.story.lyrics || "None"}` }
+      ],
+    }
+  ];
+
+  const start = Date.now();
   const result = await callOpenRouter({
     apiKey,
     model,
     messages,
-    responseFormat: { type: "json_object" },
-    maxTokens: 4096,
+    maxTokens: 4000,
   });
 
-  const { subtitles, sections, detectedLengthSeconds } = parseAnalysisResponse(result.text, song.lengthSeconds || 0);
+  const subtitles = extractSrt(result.text);
 
-  // Update song with results. If we didn't have a length before, use the detected one.
-  const updateData: any = {
-    subtitles,
-    sections,
+  // Log
+  await db.insert(aiCalls).values({
+    worldId: args.worldId,
+    storyId: args.storyId,
+    task: "transcribe_song",
+    model,
     prompt: serializePromptForStorage(messages),
-    costUsd: result.usage.costUsd != null ? result.usage.costUsd.toString() : null,
-  };
-
-  if (!song.lengthSeconds && detectedLengthSeconds) {
-    // Note: We might still hit DB constraints if the detected length is not a multiple of 15.
-    // We are relaxing the constraint in the schema for uploaded songs.
-    updateData.lengthSeconds = Math.round(detectedLengthSeconds);
-  }
+    response: result.text,
+    costUsd: result.usage.costUsd?.toString(),
+    durationMs: Date.now() - start,
+  });
 
   await db
     .update(storySongs)
-    .set(updateData)
+    .set({ subtitles })
     .where(eq(storySongs.id, song.id));
 }
 
-async function buildAnalysisMessages(
-  ctx: any,
-  audioBase64: string,
-): Promise<ChatMessage[]> {
-  const durationKnown = ctx.story.lengthSeconds > 0;
-  
+export async function analyzeSongStructure(args: {
+  worldId: string;
+  storyId: string;
+  songId: string;
+}): Promise<void> {
+  const [song] = await db
+    .select()
+    .from(storySongs)
+    .where(eq(storySongs.id, args.songId));
+  if (!song) throw new GenerationError(404, "Song not found");
+
+  const ctx = await loadSongContext({
+    worldId: args.worldId,
+    storyId: args.storyId,
+    lengthSeconds: song.lengthSeconds || undefined,
+    lyrics: song.lyrics || undefined,
+  });
+
+  const [config] = await db.select().from(settingsTable).limit(1);
+  const apiKey = config?.openrouterApiKey?.trim();
+  if (!apiKey) throw new GenerationError(400, "OpenRouter API key missing");
+
+  const audioBytes = await getObjectBuffer(song.s3Key);
+  const audioBase64 = Buffer.from(audioBytes).toString("base64");
+  const model = getModelForTask("analyze_song", config?.taskModels ?? {});
+
+  const officialDuration = song.lengthSeconds || 0;
+
+  const messages = buildThematicAnalysisMessages(ctx, audioBase64, officialDuration);
+  const start = Date.now();
+  const result = await callOpenRouter({
+    apiKey,
+    model,
+    messages,
+    maxTokens: 4000,
+  });
+
+  const { sections } = parseStoryboardResponse(result.text);
+
+  // Log
+  await db.insert(aiCalls).values({
+    worldId: args.worldId,
+    storyId: args.storyId,
+    task: "storyboard_song",
+    model,
+    prompt: serializePromptForStorage(messages),
+    response: result.text,
+    costUsd: result.usage.costUsd?.toString(),
+    durationMs: Date.now() - start,
+  });
+
+  await db
+    .update(storySongs)
+    .set({
+      sections,
+      prompt: serializePromptForStorage(messages),
+    })
+    .where(eq(storySongs.id, song.id));
+}
+
+function buildThematicAnalysisMessages(ctx: any, audioBase64: string, totalLength: number): ChatMessage[] {
   const system = [
-    "You are a professional music analyst and video director.",
-    "Your task is to analyze the provided MP3 audio, transcribe the vocals, and generate a structural storyboard plan.",
-    "You MUST return your response as a SINGLE JSON object with exactly four keys:",
-    "1. \"analysisNotes\": A string where you think step-by-step. First, analyze the musical structure (Intro, Verse, Chorus, etc.) and note the start/end timestamps of each section. Then, identify the key vocal lines and their timestamps.",
-    "2. \"detectedLengthSeconds\": A number. The total duration of the song in seconds, as determined by your audio analysis.",
-    "3. \"subtitles\": A string containing standard SRT subtitles for the lyrics based on your precise audio analysis.",
-    "4. \"sections\": A JSON array of song sections, mapped precisely to the musical structure you identified.",
+    "You are a professional music video director.",
+    "Your task is to analyze the audio's musical and thematic structure to generate a structural storyboard.",
+    "",
+    "OBJECTIVE:",
+    "Identify the major musical sections (Intro, Verse, Chorus, Bridge, Outro) based on the audio's energy, instrumentation, and emotional shifts. Map these to the provided story context.",
     "",
     "Each section in the \"sections\" array must follow this schema:",
     "{",
     "  \"startSeconds\": number,",
     "  \"endSeconds\": number,",
-    "  \"description\": \"Detailed description of what is happening in this section of the song (e.g., 'High energy chorus with heavy drums', 'Quiet acoustic intro')\",",
-    "  \"mood\": \"The emotional tone or atmosphere\",",
-    "  \"characters\": \"comma-separated list of characters present\",",
-    "  \"scenes\": \"comma-separated list of locations or scene types\",",
-    "  \"clipIdeas\": [\"Visual description for clip 1\", \"Visual description for clip 2\", ...]",
+    "  \"description\": \"Detailed description of the musical and emotional content of this section\",",
+    "  \"mood\": \"The emotional tone (e.g., 'Heroic', 'Melancholy', 'Aggressive')\",",
+    "  \"characters\": \"comma-separated list of character names (CHOOSE ONLY FROM THE PROVIDED LIST)\",",
+    "  \"scenes\": \"comma-separated list of location names (CHOOSE ONLY FROM THE PROVIDED LIST)\",",
+    "  \"clipIdeas\": [\"Visual idea for a specific shot\", \"Another visual idea\", ...]",
     "}",
     "",
     "CRITICAL RULES:",
-    "1. TIMING PRECISION: You must be extremely precise with timestamps. Base them directly on the audio waveform and musical shifts. Timestamps should be numbers (seconds).",
-    "2. MATHEMATICAL CONTINUITY: The storyboard is a perfect sequence. The startSeconds of the first section must be 0. For every subsequent section, its startSeconds MUST be exactly equal to the endSeconds of the section preceding it.",
-    "3. EXACT ENDING: The endSeconds of the VERY LAST section in the array MUST be exactly equal to the total song duration.",
-    "4. FULL COVERAGE: There must be zero gaps in the timeline from 0s to the end of the song.",
-    "5. RICH IDEAS: Generate at least 3-5 distinct visual clip ideas for EVERY section to provide plenty of creative options.",
-    "6. CONTEXT: Use the provided World, Story, Character, and Location context to make the analysis grounded.",
-    "7. LOGICAL SECTIONS: Divide the song based on real musical structure (Intro, Verse, Chorus, Bridge, Outro).",
-    "8. SRT FORMAT: Ensure the \"subtitles\" field is a valid SRT string. Each subtitle must have an index, a time range (00:00:00,000 --> 00:00:00,000), and the text.",
-    "9. JSON SAFETY: You MUST escape all double quotes and special characters within string values to ensure the response is valid JSON.",
-    "10. FORMAT: Return ONLY the raw JSON object. No markdown code blocks like ```json.",
+    "1. MATHEMATICAL CONTINUITY: The storyboard is a perfect sequence. startSeconds must start at 0. Each section's startSeconds MUST equal the previous section's endSeconds.",
+    "2. EXACT ENDING: The last section's endSeconds MUST be exactly ${totalLength}.",
+    "3. FULL COVERAGE: Zero gaps from 0 to ${totalLength}.",
+    "4. ENTITY SELECTION: You MUST only use character names and location names from the provided lists below. Do not invent new characters or places.",
+    "5. CLIP IDEAS: Generate visual clip ideas proportional to the section length. Aim for roughly 1 unique clip idea for every 3-5 seconds of duration (e.g., a 15s section should have 3-5 clip ideas). Each idea should be cinematic and fit the world's art style.",
+    "6. FORMAT: Output a SINGLE JSON object with a \"sections\" array. You may include a brief thinking/analysis text BEFORE the JSON.",
   ].join("\n");
 
-  const parts: ChatPart[] = [
-    {
-      type: "input_audio",
-      input_audio: { data: audioBase64, format: "mp3" },
-    },
-    {
-      type: "text",
-      text: [
-        `# WORLD: ${ctx.world.name}`,
-        `Style: ${ctx.world.artStyle}`,
-        ctx.world.description,
-        "",
-        `# STORY: ${ctx.story.name}`,
-        durationKnown ? `TOTAL SONG DURATION: ${ctx.story.lengthSeconds} seconds` : "TOTAL SONG DURATION: Unknown (please determine from audio)",
-        ctx.story.description,
-        "",
-        "# CHARACTERS",
-        ...ctx.characters.map((c: any) => `## ${c.name}\n${c.description}`),
-        "",
-        "# LOCATIONS",
-        ...ctx.locations.map((l: any) => `## ${l.name}\n${l.description}`),
-        "",
-        "# LYRICS (Reference)",
-        ctx.story.lyrics || "No fixed lyrics provided.",
-        "",
-        durationKnown 
-          ? `Analyze the song now. First write your analysisNotes, then generate the subtitles and the sections array. The timeline MUST cover exactly 0s to ${ctx.story.lengthSeconds}s.`
-          : `Analyze the song now. First determine the duration, write your analysisNotes, then generate the subtitles and the sections array. The timeline MUST cover the full song from 0s to the end.`,
-      ].join("\n"),
-    },
-  ];
+  const user = [
+    `# WORLD: ${ctx.world.name}`,
+    `Style: ${ctx.world.artStyle}`,
+    "",
+    `# STORY: ${ctx.story.name}`,
+    `TOTAL DURATION: ${totalLength} seconds (MUST hit this exactly)`,
+    ctx.story.description,
+    "",
+    "# AVAILABLE CHARACTERS",
+    ...ctx.characters.map((c: any) => `- ${c.name}: ${c.description}`),
+    "",
+    "# AVAILABLE LOCATIONS",
+    ...ctx.locations.map((l: any) => `- ${l.name}: ${l.description}`),
+    "",
+    "# REFERENCE LYRICS",
+    ctx.story.lyrics || "No fixed lyrics provided.",
+    "",
+    "Perform the structural analysis now. Ensure you use the character and location names provided above. The last section MUST end at exactly ${totalLength}.",
+  ].join("\n");
 
   return [
     { role: "system", content: system },
-    { role: "user", content: parts },
+    { role: "user", content: [
+      { type: "input_audio", input_audio: { data: audioBase64, format: "mp3" } },
+      { type: "text", text: user }
+    ] },
   ];
 }
 
-function parseAnalysisResponse(text: string, totalLength: number): {
-  subtitles: string;
-  sections: SongSection[];
-  detectedLengthSeconds: number;
-} {
-  let jsonText = text.trim();
-  if (jsonText.includes("```")) {
-    const match = jsonText.match(/```(?:json)?([\s\S]*?)```/);
-    if (match) jsonText = match[1].trim();
-  }
+function parseStoryboardResponse(text: string): { sections: SongSection[] } {
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start === -1 || end === -1) throw new Error("AI failed to return a JSON object.");
 
-  const start = jsonText.indexOf("{");
-  const end = jsonText.lastIndexOf("}");
-  if (start === -1 || end === -1) {
-    console.error("AI failed to return a JSON object. Raw text head:", text.slice(0, 500));
-    throw new Error("AI failed to return a valid JSON object.");
-  }
-  jsonText = jsonText.slice(start, end + 1);
-
-  try {
-    const data = JSON.parse(jsonText);
-    if (typeof data.subtitles !== "string" || !Array.isArray(data.sections)) {
-      throw new Error("AI response missing required JSON fields.");
-    }
-    
-    return {
-      subtitles: data.subtitles,
-      sections: data.sections as SongSection[],
-      detectedLengthSeconds: Number(data.detectedLengthSeconds) || 0,
-    };
-  } catch (e: any) {
-    console.error("Failed to parse analysis JSON", e);
-    console.error("Raw JSON text (truncated):", jsonText.slice(0, 1000), "...", jsonText.slice(-1000));
-    throw new Error(`AI returned invalid JSON: ${e.message}`);
-  }
+  const jsonText = text.slice(start, end + 1);
+  const data = JSON.parse(jsonText);
+  return { sections: data.sections || [] };
 }
+
+function extractSrt(text: string): string {
+  const match = text.match(/\d+\s+\d{2}:\d{2}:\d{2},\d{3} --> \d{2}:\d{2}:\d{2},\d{3}/);
+  if (match) {
+    return text.slice(text.indexOf(match[0])).trim();
+  }
+  return text.trim();
+}
+

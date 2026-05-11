@@ -177,6 +177,31 @@ export const storySongs = pgTable(
   ],
 );
 
+export const aiCalls = pgTable(
+  "ai_calls",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    worldId: uuid("world_id")
+      .notNull()
+      .references(() => worlds.id, { onDelete: "cascade" }),
+    storyId: uuid("story_id")
+      .references(() => stories.id, { onDelete: "cascade" }),
+    task: text("task").notNull(),
+    model: text("model").notNull(),
+    prompt: text("prompt"),
+    response: text("response"),
+    costUsd: numeric("cost_usd", { precision: 10, scale: 6 }),
+    durationMs: integer("duration_ms"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    index("ai_calls_world_idx").on(t.worldId),
+    index("ai_calls_story_idx").on(t.storyId),
+  ],
+);
+
 export type World = typeof worlds.$inferSelect;
 export type NewWorld = typeof worlds.$inferInsert;
 export type Character = typeof characters.$inferSelect;
@@ -185,3 +210,4 @@ export type Story = typeof stories.$inferSelect;
 export type Image = typeof images.$inferSelect;
 export type Settings = typeof settings.$inferSelect;
 export type StorySong = typeof storySongs.$inferSelect;
+export type AiCall = typeof aiCalls.$inferSelect;

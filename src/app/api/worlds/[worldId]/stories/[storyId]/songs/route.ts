@@ -79,6 +79,10 @@ export async function POST(req: Request, { params }: Ctx) {
     typeof nameRaw === "string" && nameRaw.trim()
       ? nameRaw.trim()
       : file.name.replace(/\.mp3$/i, "") || "Uploaded song";
+  
+  const lengthSecondsRaw = form.get("lengthSeconds");
+  const lengthSeconds = typeof lengthSecondsRaw === "string" ? parseInt(lengthSecondsRaw, 10) : null;
+
   const key = `stories/${storyId}/songs/${randomUUID()}.mp3`;
   const buf = Buffer.from(await file.arrayBuffer());
 
@@ -93,6 +97,7 @@ export async function POST(req: Request, { params }: Ctx) {
         s3Key: key,
         mimeType: "audio/mpeg",
         sizeBytes: file.size,
+        lengthSeconds: !isNaN(Number(lengthSeconds)) ? lengthSeconds : null,
         archived: false,
       })
       .returning();

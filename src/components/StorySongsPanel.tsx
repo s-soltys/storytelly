@@ -27,9 +27,25 @@ export function StorySongsPanel({
 
   const upload = useMutation({
     mutationFn: async (file: File) => {
+      // Detect duration client-side to ensure accuracy (e.g. for VBR files)
+      const lengthSeconds = await new Promise<number | null>((resolve) => {
+        const audio = new Audio();
+        audio.src = URL.createObjectURL(file);
+        audio.onloadedmetadata = () => {
+          URL.revokeObjectURL(audio.src);
+          resolve(Math.round(audio.duration));
+        };
+        audio.onerror = () => {
+          URL.revokeObjectURL(audio.src);
+          resolve(null);
+        };
+      });
+
       const form = new FormData();
       form.append("file", file);
       if (uploadName.trim()) form.append("name", uploadName.trim());
+      if (lengthSeconds) form.append("lengthSeconds", String(lengthSeconds));
+      
       return api.upload<StorySongDto>(
         `/api/worlds/${worldId}/stories/${storyId}/songs`,
         form,

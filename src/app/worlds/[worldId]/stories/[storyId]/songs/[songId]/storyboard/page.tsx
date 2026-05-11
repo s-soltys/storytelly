@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type StorySongDto, type SongSectionDto } from "@/lib/api";
-import { ArrowLeft, Music, Wand2, FileText, LayoutList, Loader2, Check, ChevronDown, ChevronUp, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, Music, Wand2, FileAudio, FileText, LayoutList, Loader2, Check, ChevronDown, ChevronUp, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useEffect, useState, useCallback } from "react";
 
@@ -103,11 +103,26 @@ export default function StoryboardPage() {
     },
   });
 
+  const transcribe = useMutation({
+    mutationFn: () =>
+      api.post(`/api/worlds/${worldId}/stories/${storyId}/songs/${songId}/transcribe`, {}),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["story-songs", storyId] });
+    },
+  });
+
   const handleAnalyze = () => {
     if (song?.sections && !confirm("Re-generate analysis? Current sections will be overwritten.")) {
       return;
     }
     analyze.mutate();
+  };
+
+  const handleTranscribe = () => {
+    if (song?.subtitles && !confirm("Re-generate transcription? Current subtitles will be overwritten.")) {
+      return;
+    }
+    transcribe.mutate();
   };
 
   const updateSection = (index: number, field: keyof SongSectionDto, value: any) => {
@@ -118,7 +133,7 @@ export default function StoryboardPage() {
 
   const updateClipIdea = (sIndex: number, cIndex: number, value: string) => {
     const next = [...sections];
-    const nextClips = [...next[sIndex].clipIdeas];
+    const nextClips = [...(next[sIndex].clipIdeas || [])];
     nextClips[cIndex] = value;
     next[sIndex] = { ...next[sIndex], clipIdeas: nextClips };
     setSections(next);
@@ -126,13 +141,13 @@ export default function StoryboardPage() {
 
   const addClipIdea = (sIndex: number) => {
     const next = [...sections];
-    next[sIndex] = { ...next[sIndex], clipIdeas: [...next[sIndex].clipIdeas, "New clip idea..."] };
+    next[sIndex] = { ...next[sIndex], clipIdeas: [...(next[sIndex].clipIdeas || []), "New clip idea..."] };
     setSections(next);
   };
 
   const deleteClipIdea = (sIndex: number, cIndex: number) => {
     const next = [...sections];
-    const nextClips = [...next[sIndex].clipIdeas];
+    const nextClips = [...(next[sIndex].clipIdeas || [])];
     nextClips.splice(cIndex, 1);
     next[sIndex] = { ...next[sIndex], clipIdeas: nextClips };
     setSections(next);
@@ -166,14 +181,25 @@ export default function StoryboardPage() {
             )}
           </div>
         </div>
-        <Button
-          size="sm"
-          disabled={analyze.isPending || !song}
-          onClick={handleAnalyze}
-        >
-          <Wand2 className={`h-4 w-4 ${analyze.isPending ? "animate-spin" : ""}`} />
-          {analyze.isPending ? "Analyzing..." : song?.sections ? "Re-analyze Song" : "Analyze Song"}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={transcribe.isPending || !song}
+            onClick={handleTranscribe}
+          >
+            <FileAudio className={`h-4 w-4 ${transcribe.isPending ? "animate-spin" : ""}`} />
+            {transcribe.isPending ? "Transcribing..." : song?.subtitles ? "Re-transcribe" : "Transcribe Lyrics"}
+          </Button>
+          <Button
+            size="sm"
+            disabled={analyze.isPending || !song}
+            onClick={handleAnalyze}
+          >
+            <Wand2 className={`h-4 w-4 ${analyze.isPending ? "animate-spin" : ""}`} />
+            {analyze.isPending ? "Analyzing..." : song?.sections ? "Re-analyze Storyboard" : "Analyze Storyboard"}
+          </Button>
+        </div>
       </div>
 
       <section className="rounded-[var(--radius-control)] border border-[var(--color-border)]/70 bg-[var(--color-surface)]/45 p-3">
@@ -219,15 +245,6 @@ export default function StoryboardPage() {
                 </div>
               )}
 
-              {/* Subtitle Overlay */}
-              {activeSubtitle && (
-                <div className="absolute bottom-10 left-0 right-0 px-12 animate-in slide-in-from-bottom-2 duration-300">
-                  <p className="inline-block px-4 py-1.5 bg-black/70 rounded text-sm md:text-base text-white font-medium border border-white/10 shadow-lg leading-snug">
-                    {activeSubtitle.text}
-                  </p>
-                </div>
-              )}
-              
               {/* Subtle Progress bar overlay */}
               {song?.lengthSeconds && (
                 <div className="absolute bottom-0 left-0 h-1 bg-[var(--color-accent)]/40 transition-all duration-100 ease-linear shadow-[0_0_10px_var(--color-accent)]" 
@@ -243,9 +260,9 @@ export default function StoryboardPage() {
               onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
             />
 
-            {analyze.error && (
+            {(analyze.error || transcribe.error) && (
               <p className="text-xs text-[var(--color-danger)]">
-                {(analyze.error as Error).message}
+                {((analyze.error || transcribe.error) as Error).message}
               </p>
             )}
 
@@ -337,7 +354,7 @@ export default function StoryboardPage() {
                             </button>
                           </div>
                           <div className="space-y-2">
-                            {section.clipIdeas.map((clip, ci) => (
+                            {(section.clipIdeas || []).map((clip, ci) => (
                               <div key={ci} className="flex gap-2 border-l-2 border-[var(--color-accent)]/30 pl-2 group">
                                 <textarea
                                   value={clip}

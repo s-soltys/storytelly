@@ -9,10 +9,12 @@ import {
   storyCharacters,
   storyLocations,
   worlds,
+  aiCalls,
 } from "@/db/schema";
 import { callOpenRouter, type ChatMessage, type ChatPart } from "./openrouter";
 import { imageToDataUrl } from "./images";
 import { getModelForTask } from "./tasks";
+import { serializePromptForStorage } from "./song";
 
 const MAX_IMAGES_PER_CHARACTER = 3;
 const MAX_IMAGES_PER_LOCATION = 1;
@@ -66,7 +68,21 @@ export async function generateLyrics(args: {
 
   const messages = await buildLyricsMessages(ctx);
 
+  const start = Date.now();
   const result = await callOpenRouter({ apiKey, model, messages });
+  const durationMs = Date.now() - start;
+
+  // Log the call
+  await db.insert(aiCalls).values({
+    worldId: args.worldId,
+    storyId: args.storyId,
+    task: "lyrics",
+    model,
+    prompt: serializePromptForStorage(messages),
+    response: result.text,
+    costUsd: result.usage.costUsd != null ? result.usage.costUsd.toString() : null,
+    durationMs,
+  });
 
   return { lyrics: result.text };
 }

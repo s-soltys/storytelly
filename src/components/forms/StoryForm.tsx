@@ -18,7 +18,7 @@ import { Input, Textarea } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ImageUploader } from "@/components/ImageUploader";
 import { StorySongsPanel } from "@/components/StorySongsPanel";
-import { ArrowLeft, ImageIcon, Trash2 } from "lucide-react";
+import { ArrowLeft, ImageIcon, Terminal, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type Mode =
@@ -411,19 +411,35 @@ export function StoryForm(props: Mode) {
         </form>
 
         {props.kind === "edit" && existing.data && (
-          <aside className="rounded-[var(--radius-control)] border border-[var(--color-border)]/70 bg-[var(--color-surface)]/55 p-3">
-            <div className="mb-2 flex items-center gap-2">
-              <ImageIcon className="h-4 w-4 text-[var(--color-muted)]" />
-              <h2 className="font-mono text-xs uppercase tracking-widest">
-                Mood images
-              </h2>
+          <aside className="space-y-4">
+            <div className="rounded-[var(--radius-control)] border border-[var(--color-border)]/70 bg-[var(--color-surface)]/55 p-3">
+              <div className="mb-2 flex items-center gap-2">
+                <ImageIcon className="h-4 w-4 text-[var(--color-muted)]" />
+                <h2 className="font-mono text-xs uppercase tracking-widest">
+                  Mood images
+                </h2>
+              </div>
+              <ImageUploader
+                ownerKind="story_mood"
+                ownerId={props.storyId}
+                initial={existing.data.moodImages ?? []}
+                compact
+              />
             </div>
-            <ImageUploader
-              ownerKind="story_mood"
-              ownerId={props.storyId}
-              initial={existing.data.moodImages ?? []}
-              compact
-            />
+
+            <div className="rounded-[var(--radius-control)] border border-[var(--color-border)]/70 bg-[var(--color-surface)]/55 p-3">
+              <div className="mb-2 flex items-center gap-2">
+                <Terminal className="h-4 w-4 text-[var(--color-muted)]" />
+                <h2 className="font-mono text-xs uppercase tracking-widest">
+                  System
+                </h2>
+              </div>
+              <Link href={`/worlds/${worldId}/stories/${props.storyId}/logs`}>
+                <Button variant="ghost" className="w-full justify-start gap-2 h-9 text-xs font-mono uppercase tracking-wider" size="sm">
+                  <Terminal className="h-3.5 w-3.5" /> View AI Logs
+                </Button>
+              </Link>
+            </div>
           </aside>
         )}
       </div>
