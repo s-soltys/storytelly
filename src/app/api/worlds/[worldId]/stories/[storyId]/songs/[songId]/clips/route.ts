@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db/client";
-import { songClips, images } from "@/db/schema";
+import { songClips, images, videos } from "@/db/schema";
 import { eq, asc, inArray, and, max } from "drizzle-orm";
 import { presignedGetUrl } from "@/lib/storage";
 
@@ -23,7 +23,8 @@ export async function GET(
 
     const clipIds = clips.map(c => c.id);
     let allImages: typeof images.$inferSelect[] = [];
-    
+    let allVideos: typeof videos.$inferSelect[] = [];
+
     if (clipIds.length > 0) {
       allImages = await db
         .select()
@@ -31,24 +32,42 @@ export async function GET(
         .where(
           inArray(images.ownerId, clipIds)
         );
+
+      allVideos = await db
+        .select()
+        .from(videos)
+        .where(
+          inArray(videos.ownerId, clipIds)
+        );
     }
 
-    const clipsWithImages = await Promise.all(clips.map(async (clip) => {
+    const clipsWithMedia = await Promise.all(clips.map(async (clip) => {
       const clipImages = allImages
         .filter(img => img.ownerId === clip.id && img.ownerKind === 'song_clip')
         .sort((a, b) => b.position - a.position);
-        
+
       const hydratedImages = await Promise.all(clipImages.map(async (img) => ({
         ...img,
         url: await presignedGetUrl(img.s3Key),
       })));
+
+      const clipVideos = allVideos
+        .filter(vid => vid.ownerId === clip.id && vid.ownerKind === 'song_clip')
+        .sort((a, b) => b.position - a.position);
+
+      const hydratedVideos = await Promise.all(clipVideos.map(async (vid) => ({
+        ...vid,
+        url: await presignedGetUrl(vid.s3Key),
+      })));
+
       return {
         ...clip,
         images: hydratedImages,
+        videos: hydratedVideos,
       };
     }));
 
-    return NextResponse.json(clipsWithImages);
+    return NextResponse.json(clipsWithMedia);
   } catch (error) {
     console.error("Failed to fetch song clips:", error);
     return NextResponse.json(
@@ -102,4 +121,3 @@ export async function POST(
     );
   }
 }
-

@@ -113,6 +113,18 @@ export type SongClipDto = {
   description: string;
   position: number;
   images?: ImageDto[];
+  videos?: VideoDto[];
+};
+
+export type VideoDto = {
+  id: string;
+  url: string;
+  s3Key: string;
+  position: number;
+  mimeType: string | null;
+  sizeBytes: number | null;
+  durationSeconds: number | null;
+  createdAt: string;
 };
 
 export type SettingsDto = {

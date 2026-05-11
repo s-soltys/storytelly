@@ -24,6 +24,7 @@ export type OpenRouterUsage = {
 export type OpenRouterResult = {
   text: string;
   images: string[];
+  videos: string[];
   usage: OpenRouterUsage;
 };
 
@@ -99,15 +100,16 @@ export async function callOpenRouter(args: {
 
   const text = extractText(data);
   const images = extractImages(data);
-  if (!text && images.length === 0) {
+  const videos = extractVideos(data);
+  if (!text && images.length === 0 && videos.length === 0) {
     throw new OpenRouterError(
-      "OpenRouter response missing both text and image content",
+      "OpenRouter response missing text, image, and video content",
       res.status,
       raw,
     );
   }
 
-  return { text: text || "", images, usage: extractUsage(data) };
+  return { text: text || "", images, videos, usage: extractUsage(data) };
 }
 
 export async function transcribeAudio(args: {
@@ -316,6 +318,42 @@ function extractImages(data: unknown): string[] {
     for (const p of message.content) {
       if (typeof p === "object" && p && "image_url" in p) {
         found.push((p as { image_url: { url: string } }).image_url.url);
+      }
+    }
+  }
+
+  return found;
+}
+
+function extractVideos(data: unknown): string[] {
+  const message = (data as {
+    choices?: { message?: { content?: unknown; videos?: unknown[] } }[];
+  })?.choices?.[0]?.message;
+
+  if (!message) return [];
+
+  const found: string[] = [];
+
+  // OpenRouter specific videos array
+  if (Array.isArray(message.videos)) {
+    for (const vid of message.videos) {
+      if (typeof vid === "string") {
+        found.push(vid);
+      } else if (typeof vid === "object" && vid) {
+        if ("video_url" in vid) {
+          found.push((vid as { video_url: { url: string } }).video_url.url);
+        } else if ("url" in vid) {
+          found.push((vid as { url: string }).url);
+        }
+      }
+    }
+  }
+
+  // Content parts (some models might return video parts)
+  if (Array.isArray(message.content)) {
+    for (const p of message.content) {
+      if (typeof p === "object" && p && "video_url" in p) {
+        found.push((p as { video_url: { url: string } }).video_url.url);
       }
     }
   }

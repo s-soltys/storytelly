@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type StorySongDto, type SongSectionDto, type SongClipDto } from "@/lib/api";
-import { ArrowLeft, Music, Wand2, FileAudio, FileText, LayoutList, Loader2, Check, ChevronDown, ChevronUp, Plus, Trash2, Image as ImageIcon } from "lucide-react";
+import { ArrowLeft, Music, Wand2, FileAudio, FileText, LayoutList, Loader2, Check, ChevronDown, ChevronUp, Plus, Trash2, Image as ImageIcon, Video } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useEffect, useState, useCallback } from "react";
 
@@ -47,6 +47,14 @@ export default function StoryboardPage() {
   const generateSingleImage = useMutation({
     mutationFn: (clipId: string) =>
       api.post<{ url: string }>(`/api/worlds/${worldId}/stories/${storyId}/songs/${songId}/clips/${clipId}/generate-image`, {}),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["story-songs", songId, "clips"] });
+    },
+  });
+
+  const generateVideo = useMutation({
+    mutationFn: (clipId: string) =>
+      api.post<VideoDto>(`/api/worlds/${worldId}/stories/${storyId}/songs/${songId}/clips/${clipId}/generate-video`, {}),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["story-songs", songId, "clips"] });
     },
@@ -410,7 +418,9 @@ export default function StoryboardPage() {
                           <div className="space-y-3">
                             {clips.filter(c => c.sectionIndex === i).map((clip) => {
                               const clipImage = clip.images?.[0];
+                              const clipVideo = clip.videos?.[0];
                               const isGeneratingImg = generateSingleImage.variables === clip.id && generateSingleImage.isPending;
+                              const isGeneratingVid = generateVideo.variables === clip.id && generateVideo.isPending;
 
                               return (
                                 <div key={clip.id} className="group flex flex-col gap-2 rounded bg-[var(--color-surface)]/40 p-2 text-[10px] border border-transparent hover:border-[var(--color-border)]/30 transition-all">
@@ -429,7 +439,7 @@ export default function StoryboardPage() {
                                     <button
                                       type="button"
                                       onClick={() => {
-                                        if (confirm("Delete this clip and all its generated images?")) {
+                                        if (confirm("Delete this clip and all its generated images/videos?")) {
                                           deleteClip.mutate(clip.id);
                                         }
                                       }}
@@ -445,7 +455,31 @@ export default function StoryboardPage() {
                                     </button>
                                   </div>
                                   
-                                  {clipImage ? (
+                                  {clipVideo ? (
+                                    <div className="relative aspect-video w-full overflow-hidden rounded bg-black/50 group/vid shadow-sm">
+                                      <video 
+                                        src={clipVideo.url} 
+                                        controls
+                                        className="absolute inset-0 h-full w-full object-cover" 
+                                      />
+                                      <div className="absolute top-2 right-2 opacity-0 group-hover/vid:opacity-100 transition-opacity">
+                                        <Button
+                                          size="sm"
+                                          variant="secondary"
+                                          className="h-6 text-[8px] px-1.5 font-mono uppercase tracking-widest bg-black/60 hover:bg-black/80 border-white/10"
+                                          disabled={isGeneratingVid}
+                                          onClick={() => generateVideo.mutate(clip.id)}
+                                        >
+                                          {isGeneratingVid ? (
+                                            <Loader2 className="h-2 w-2 animate-spin mr-1" />
+                                          ) : (
+                                            <Video className="h-2 w-2 mr-1" />
+                                          )}
+                                          Regen
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  ) : clipImage ? (
                                     <div className="relative aspect-video w-full overflow-hidden rounded bg-black/50 group/img shadow-sm">
                                       {/* eslint-disable-next-line @next/next/no-img-element */}
                                       <img 
@@ -453,7 +487,20 @@ export default function StoryboardPage() {
                                         alt="Clip" 
                                         className="absolute inset-0 h-full w-full object-cover transition-transform group-hover/img:scale-105 duration-700" 
                                       />
-                                      <div className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 group-hover/img:opacity-100 transition-opacity">
+                                      <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/60 opacity-0 group-hover/img:opacity-100 transition-opacity">
+                                        <Button
+                                          size="sm"
+                                          className="h-7 text-[9px] px-2 font-mono uppercase tracking-widest bg-[var(--color-accent)] hover:bg-[var(--color-accent)]/80 border-none"
+                                          disabled={isGeneratingVid}
+                                          onClick={() => generateVideo.mutate(clip.id)}
+                                        >
+                                          {isGeneratingVid ? (
+                                            <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                                          ) : (
+                                            <Video className="h-3 w-3 mr-1" />
+                                          )}
+                                          Generate Video
+                                        </Button>
                                         <Button
                                           size="sm"
                                           variant="secondary"
@@ -466,7 +513,7 @@ export default function StoryboardPage() {
                                           ) : (
                                             <ImageIcon className="h-3 w-3 mr-1" />
                                           )}
-                                          Regenerate
+                                          Regen Image
                                         </Button>
                                       </div>
                                     </div>

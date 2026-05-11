@@ -194,6 +194,27 @@ export const songClips = pgTable(
   ],
 );
 
+export const videoOwnerKinds = ["song_clip"] as const;
+export type VideoOwnerKind = (typeof videoOwnerKinds)[number];
+
+export const videos = pgTable(
+  "videos",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    s3Key: text("s3_key").notNull(),
+    mimeType: text("mime_type"),
+    sizeBytes: integer("size_bytes"),
+    durationSeconds: integer("duration_seconds"),
+    ownerKind: text("owner_kind", { enum: videoOwnerKinds }).notNull(),
+    ownerId: uuid("owner_id").notNull(),
+    position: integer("position").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [index("videos_owner_idx").on(t.ownerKind, t.ownerId)],
+);
+
 export const aiCalls = pgTable(
   "ai_calls",
   {
@@ -228,4 +249,5 @@ export type Image = typeof images.$inferSelect;
 export type Settings = typeof settings.$inferSelect;
 export type StorySong = typeof storySongs.$inferSelect;
 export type SongClip = typeof songClips.$inferSelect;
+export type Video = typeof videos.$inferSelect;
 export type AiCall = typeof aiCalls.$inferSelect;

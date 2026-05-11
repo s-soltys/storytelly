@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { db } from "@/db/client";
-import { worlds, characters, locations, stories, storySongs, songClips, images, settings as settingsTable, aiCalls, type ImageOwnerKind } from "@/db/schema";
+import { worlds, characters, locations, stories, storySongs, songClips, images, videos, settings as settingsTable, aiCalls, type ImageOwnerKind, type VideoOwnerKind } from "@/db/schema";
 import { eq, and, inArray, max } from "drizzle-orm";
 import { loadImages } from "@/lib/server";
 import { putObject } from "@/lib/storage";
@@ -9,6 +9,40 @@ import { callOpenRouter, type ChatMessage, type ChatPart } from "./openrouter";
 import { getModelForTask } from "./tasks";
 import { serializePromptForStorage } from "./song";
 import { GenerationError } from "./songScript";
+
+async function saveAiVideo(videoUrl: string, ownerKind: VideoOwnerKind, ownerId: string) {
+  const res = await fetch(videoUrl);
+  if (!res.ok) throw new Error(`Failed to download video from ${videoUrl}`);
+  const arrayBuffer = await res.arrayBuffer();
+  const buffer = Buffer.from(arrayBuffer);
+  const contentType = res.headers.get("content-type") || "video/mp4";
+
+  const ext = contentType.split("/")[1]?.split("+")[0] || "mp4";
+  const folder = ownerKind === "song_clip" ? "clips" : "misc";
+  const key = `${folder}/${ownerId}/videos/${randomUUID()}.${ext}`;
+
+  await putObject(key, buffer, contentType);
+
+  const [{ value: maxPos }] = await db
+    .select({ value: max(videos.position) })
+    .from(videos)
+    .where(and(eq(videos.ownerKind, ownerKind), eq(videos.ownerId, ownerId)));
+  const position = (maxPos ?? -1) + 1;
+
+  const [row] = await db
+    .insert(videos)
+    .values({
+      s3Key: key,
+      mimeType: contentType,
+      sizeBytes: buffer.length,
+      ownerKind,
+      ownerId,
+      position,
+    })
+    .returning();
+
+  return row;
+}
 
 async function saveAiImage(imageUrl: string, ownerKind: ImageOwnerKind, ownerId: string) {
   let buffer: Buffer;
@@ -307,4 +341,100 @@ export async function generateAllClipImages(args: {
 
   return count;
 }
+
+export async function generateClipVideo(args: {
+  worldId: string;
+  storyId: string;
+  songId: string;
+  clipId: string;
+}) {
+  const [config] = await db.select().from(settingsTable).limit(1);
+  const apiKey = config?.openrouterApiKey?.trim();
+  if (!apiKey) throw new GenerationError(400, "OpenRouter API key missing");
+
+  const [world] = await db.select().from(worlds).where(eq(worlds.id, args.worldId));
+  if (!world) throw new GenerationError(404, "World not found");
+
+  const [story] = await db.select().from(stories).where(eq(stories.id, args.storyId));
+  if (!story) throw new GenerationError(404, "Story not found");
+
+  const [song] = await db.select().from(storySongs).where(eq(storySongs.id, args.songId));
+  if (!song) throw new GenerationError(404, "Song not found");
+
+  const [clip] = await db.select().from(songClips).where(eq(songClips.id, args.clipId));
+  if (!clip) throw new GenerationError(404, "Clip not found");
+
+  const sections: any[] = (song.sections as any[]) || [];
+  const section = sections[clip.sectionIndex];
+  if (!section) throw new GenerationError(404, "Parent section not found for clip");
+
+  // Load the clip's image as the reference
+  const [latestImage] = await db
+    .select()
+    .from(images)
+    .where(and(eq(images.ownerKind, "song_clip"), eq(images.ownerId, clip.id)))
+    .orderBy(images.position.desc())
+    .limit(1);
+
+  if (!latestImage) throw new Error("Clip must have an image before generating a video.");
+
+  const dataUrl = await imageToDataUrl({ s3Key: latestImage.s3Key, mimeType: latestImage.mimeType });
+  if (!dataUrl) throw new Error("Failed to load clip image context.");
+
+  const duration = section.endSeconds - section.startSeconds;
+  
+  const prompt = [
+    `Generate a high-quality cinematic video based on this image for the world "${world.name}".`,
+    `World Art Style: ${world.artStyle}`,
+    "",
+    `Section Context: ${section.description}`,
+    `Scene Mood: ${section.mood}`,
+    `Clip Narrative: ${clip.description}`,
+    "",
+    "Instructions:",
+    `- The video MUST follow the visual style, characters, and environment shown in the provided image.`,
+    `- The motion should be cinematic and natural.`,
+    `- Aim for a duration of approximately ${Math.min(duration, 10)} seconds.`,
+    `- No text overlays or watermarks.`,
+  ].filter(Boolean).join("\n");
+
+  const messages: ChatMessage[] = [
+    {
+      role: "user",
+      content: [
+        { type: "image_url", image_url: { url: dataUrl } },
+        { type: "text", text: prompt }
+      ]
+    }
+  ];
+
+  const videoModel = getModelForTask("generate_video", config?.taskModels ?? {});
+  const start = Date.now();
+  
+  const result = await callOpenRouter({
+    apiKey,
+    model: videoModel,
+    messages,
+    modalities: ["video", "text"],
+  });
+
+  await db.insert(aiCalls).values({
+    worldId: args.worldId,
+    storyId: args.storyId,
+    task: `generate_clip_video`,
+    model: videoModel,
+    prompt: serializePromptForStorage(messages),
+    response: result.videos.length > 0 ? `[${result.videos.length} videos generated]` : result.text,
+    costUsd: result.usage.costUsd?.toString(),
+    durationMs: Date.now() - start,
+  });
+
+  if (result.videos.length === 0) {
+    throw new Error("AI failed to generate a video. Response: " + result.text);
+  }
+
+  const videoRow = await saveAiVideo(result.videos[0], "song_clip", clip.id);
+  return videoRow;
+}
+
 
