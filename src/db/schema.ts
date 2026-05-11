@@ -206,7 +206,9 @@ export const videos = pgTable(
     sizeBytes: integer("size_bytes"),
     durationSeconds: integer("duration_seconds"),
     ownerKind: text("owner_kind", { enum: videoOwnerKinds }).notNull(),
-    ownerId: uuid("owner_id").notNull(),
+    ownerId: uuid("owner_id")
+      .notNull()
+      .references(() => songClips.id, { onDelete: "cascade" }),
     position: integer("position").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()

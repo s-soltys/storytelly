@@ -4,7 +4,7 @@ export const TASK_DEFAULTS = {
   analyze_song: "openai/gpt-4o-audio-preview",
   transcription: "openai/gpt-4o-audio-preview",
   generate_image: "google/gemini-2.5-flash-image",
-  generate_video: "luma/ray-2-720p",
+  generate_video: "google/veo-3.1-lite",
   vision: "google/gemini-2.0-flash-001",
 } as const;
 

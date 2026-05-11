@@ -24,7 +24,6 @@ export type OpenRouterUsage = {
 export type OpenRouterResult = {
   text: string;
   images: string[];
-  videos: string[];
   usage: OpenRouterUsage;
 };
 
@@ -45,9 +44,17 @@ export type OpenRouterAudioResult = {
   generationId: string | null;
 };
 
+export type OpenRouterVideoResult = {
+  video: Buffer;
+  mimeType: string;
+  usage: OpenRouterUsage;
+  jobId: string;
+};
+
 const ENDPOINT = "https://openrouter.ai/api/v1/chat/completions";
 const TRANSCRIPTION_ENDPOINT =
   "https://openrouter.ai/api/v1/audio/transcriptions";
+const VIDEO_ENDPOINT = "https://openrouter.ai/api/v1/videos";
 
 export async function callOpenRouter(args: {
   apiKey: string;
@@ -100,16 +107,15 @@ export async function callOpenRouter(args: {
 
   const text = extractText(data);
   const images = extractImages(data);
-  const videos = extractVideos(data);
-  if (!text && images.length === 0 && videos.length === 0) {
+  if (!text && images.length === 0) {
     throw new OpenRouterError(
-      "OpenRouter response missing text, image, and video content",
+      "OpenRouter response missing both text and image content",
       res.status,
       raw,
     );
   }
 
-  return { text: text || "", images, videos, usage: extractUsage(data) };
+  return { text: text || "", images, usage: extractUsage(data) };
 }
 
 export async function transcribeAudio(args: {
@@ -264,6 +270,112 @@ export async function callOpenRouterAudio(args: {
   };
 }
 
+export async function callOpenRouterVideo(args: {
+  apiKey: string;
+  model: string;
+  prompt: string;
+  firstFrameDataUrl?: string;
+  durationSeconds?: number;
+  aspectRatio?: "16:9" | "9:16" | "1:1" | "4:3" | "3:4" | "21:9" | "9:21";
+  resolution?: string;
+  pollIntervalMs?: number;
+  timeoutMs?: number;
+  signal?: AbortSignal;
+}): Promise<OpenRouterVideoResult> {
+  const submit = await fetch(VIDEO_ENDPOINT, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${args.apiKey}`,
+      "X-Title": "Storytelly",
+    },
+    body: JSON.stringify({
+      model: args.model,
+      prompt: args.prompt,
+      aspect_ratio: args.aspectRatio ?? "16:9",
+      duration: args.durationSeconds,
+      resolution: args.resolution ?? "720p",
+      generate_audio: false,
+      frame_images: args.firstFrameDataUrl
+        ? [
+            {
+              type: "image_url",
+              image_url: { url: args.firstFrameDataUrl },
+              frame_type: "first_frame",
+            },
+          ]
+        : undefined,
+    }),
+    signal: args.signal,
+  });
+
+  const submitRaw = await submit.text();
+  if (!submit.ok) {
+    throw new OpenRouterError(
+      `OpenRouter Video ${submit.status}: ${submitRaw.slice(0, 600)}`,
+      submit.status,
+      submitRaw,
+    );
+  }
+
+  const submitted = parseJsonObject(submitRaw, submit.status);
+  const jobId = stringField(submitted, "id");
+  const pollingUrl = stringField(submitted, "polling_url");
+  if (!jobId || !pollingUrl) {
+    throw new OpenRouterError(
+      "OpenRouter video response missing job id or polling URL",
+      submit.status,
+      submitRaw,
+    );
+  }
+
+  const startedAt = Date.now();
+  const timeoutMs = args.timeoutMs ?? 285_000;
+  const pollIntervalMs = args.pollIntervalMs ?? 5_000;
+
+  while (Date.now() - startedAt < timeoutMs) {
+    await wait(pollIntervalMs, args.signal);
+    const poll = await fetch(resolveOpenRouterUrl(pollingUrl), {
+      headers: { authorization: `Bearer ${args.apiKey}` },
+      signal: args.signal,
+    });
+    const pollRaw = await poll.text();
+    if (!poll.ok) {
+      throw new OpenRouterError(
+        `OpenRouter Video Poll ${poll.status}: ${pollRaw.slice(0, 600)}`,
+        poll.status,
+        pollRaw,
+      );
+    }
+
+    const status = parseJsonObject(pollRaw, poll.status);
+    const state = stringField(status, "status");
+    if (state === "failed" || state === "cancelled" || state === "expired") {
+      throw new OpenRouterError(
+        `OpenRouter video generation ${state}: ${String(status.error ?? "Unknown error")}`,
+        poll.status,
+        pollRaw,
+      );
+    }
+    if (state !== "completed") continue;
+
+    const url = firstString(status.unsigned_urls) ?? contentUrlForJob(jobId);
+    const downloaded = await downloadOpenRouterVideo(url, args.apiKey, args.signal);
+    return {
+      video: downloaded.video,
+      mimeType: downloaded.mimeType,
+      usage: extractUsage(status),
+      jobId,
+    };
+  }
+
+  throw new OpenRouterError(
+    "OpenRouter video generation timed out before completion",
+    408,
+    JSON.stringify({ jobId, pollingUrl }),
+  );
+}
+
 export class OpenRouterError extends Error {
   status: number;
   body: string;
@@ -273,6 +385,76 @@ export class OpenRouterError extends Error {
     this.status = status;
     this.body = body;
   }
+}
+
+function parseJsonObject(raw: string, status: number): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object") {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    // handled below
+  }
+  throw new OpenRouterError("OpenRouter returned non-JSON response", status, raw);
+}
+
+function stringField(obj: Record<string, unknown>, key: string): string | null {
+  const value = obj[key];
+  return typeof value === "string" && value ? value : null;
+}
+
+function firstString(value: unknown): string | null {
+  return Array.isArray(value) && typeof value[0] === "string" ? value[0] : null;
+}
+
+function resolveOpenRouterUrl(url: string): string {
+  return new URL(url, "https://openrouter.ai").toString();
+}
+
+function contentUrlForJob(jobId: string): string {
+  return `${VIDEO_ENDPOINT}/${encodeURIComponent(jobId)}/content?index=0`;
+}
+
+async function downloadOpenRouterVideo(
+  url: string,
+  apiKey: string,
+  signal?: AbortSignal,
+): Promise<{ video: Buffer; mimeType: string }> {
+  const resolved = resolveOpenRouterUrl(url);
+  const res = await fetch(resolved, {
+    headers: resolved.startsWith("https://openrouter.ai/")
+      ? { authorization: `Bearer ${apiKey}` }
+      : undefined,
+    signal,
+  });
+  if (!res.ok) {
+    const raw = await res.text().catch(() => "");
+    throw new OpenRouterError(
+      `OpenRouter Video Download ${res.status}: ${raw.slice(0, 600)}`,
+      res.status,
+      raw,
+    );
+  }
+  return {
+    video: Buffer.from(await res.arrayBuffer()),
+    mimeType: res.headers.get("content-type") || "video/mp4",
+  };
+}
+
+function wait(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return Promise.reject(signal.reason);
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        reject(signal.reason);
+      },
+      { once: true },
+    );
+  });
 }
 
 function extractText(data: unknown): string | null {
@@ -318,42 +500,6 @@ function extractImages(data: unknown): string[] {
     for (const p of message.content) {
       if (typeof p === "object" && p && "image_url" in p) {
         found.push((p as { image_url: { url: string } }).image_url.url);
-      }
-    }
-  }
-
-  return found;
-}
-
-function extractVideos(data: unknown): string[] {
-  const message = (data as {
-    choices?: { message?: { content?: unknown; videos?: unknown[] } }[];
-  })?.choices?.[0]?.message;
-
-  if (!message) return [];
-
-  const found: string[] = [];
-
-  // OpenRouter specific videos array
-  if (Array.isArray(message.videos)) {
-    for (const vid of message.videos) {
-      if (typeof vid === "string") {
-        found.push(vid);
-      } else if (typeof vid === "object" && vid) {
-        if ("video_url" in vid) {
-          found.push((vid as { video_url: { url: string } }).video_url.url);
-        } else if ("url" in vid) {
-          found.push((vid as { url: string }).url);
-        }
-      }
-    }
-  }
-
-  // Content parts (some models might return video parts)
-  if (Array.isArray(message.content)) {
-    for (const p of message.content) {
-      if (typeof p === "object" && p && "video_url" in p) {
-        found.push((p as { video_url: { url: string } }).video_url.url);
       }
     }
   }

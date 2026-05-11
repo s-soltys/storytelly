@@ -49,6 +49,7 @@ function keyFor(kind: ImageOwnerKind, ownerId: string, ext: string) {
     character: "characters",
     location: "locations",
     story_mood: "stories",
+    song_clip: "clips",
   }[kind];
   const sub = kind.endsWith("_mood") ? "mood" : "images";
   return `${folder}/${ownerId}/${sub}/${randomUUID()}.${ext}`;

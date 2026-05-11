@@ -1,42 +1,44 @@
 import { randomUUID } from "node:crypto";
 import { db } from "@/db/client";
 import { worlds, characters, locations, stories, storySongs, songClips, images, videos, settings as settingsTable, aiCalls, type ImageOwnerKind, type VideoOwnerKind } from "@/db/schema";
-import { eq, and, inArray, max } from "drizzle-orm";
+import { eq, and, inArray, max, desc } from "drizzle-orm";
 import { loadImages } from "@/lib/server";
 import { putObject } from "@/lib/storage";
 import { imageToDataUrl } from "./images";
-import { callOpenRouter, type ChatMessage, type ChatPart } from "./openrouter";
+import { callOpenRouter, callOpenRouterVideo, type ChatMessage, type ChatPart } from "./openrouter";
 import { getModelForTask } from "./tasks";
 import { serializePromptForStorage } from "./song";
 import { GenerationError } from "./songScript";
 
-async function saveAiVideo(videoUrl: string, ownerKind: VideoOwnerKind, ownerId: string) {
-  const res = await fetch(videoUrl);
-  if (!res.ok) throw new Error(`Failed to download video from ${videoUrl}`);
-  const arrayBuffer = await res.arrayBuffer();
-  const buffer = Buffer.from(arrayBuffer);
-  const contentType = res.headers.get("content-type") || "video/mp4";
+const GENERATED_VIDEO_EXT = "mp4";
 
-  const ext = contentType.split("/")[1]?.split("+")[0] || "mp4";
-  const folder = ownerKind === "song_clip" ? "clips" : "misc";
-  const key = `${folder}/${ownerId}/videos/${randomUUID()}.${ext}`;
+async function saveAiVideo(args: {
+  buffer: Buffer;
+  mimeType: string;
+  durationSeconds: number;
+  ownerKind: VideoOwnerKind;
+  ownerId: string;
+}) {
+  const ext = extensionFromMime(args.mimeType, GENERATED_VIDEO_EXT);
+  const key = `clips/${args.ownerId}/videos/${randomUUID()}.${ext}`;
 
-  await putObject(key, buffer, contentType);
+  await putObject(key, args.buffer, args.mimeType);
 
   const [{ value: maxPos }] = await db
     .select({ value: max(videos.position) })
     .from(videos)
-    .where(and(eq(videos.ownerKind, ownerKind), eq(videos.ownerId, ownerId)));
+    .where(and(eq(videos.ownerKind, args.ownerKind), eq(videos.ownerId, args.ownerId)));
   const position = (maxPos ?? -1) + 1;
 
   const [row] = await db
     .insert(videos)
     .values({
       s3Key: key,
-      mimeType: contentType,
-      sizeBytes: buffer.length,
-      ownerKind,
-      ownerId,
+      mimeType: args.mimeType,
+      sizeBytes: args.buffer.length,
+      durationSeconds: args.durationSeconds,
+      ownerKind: args.ownerKind,
+      ownerId: args.ownerId,
       position,
     })
     .returning();
@@ -86,6 +88,20 @@ async function saveAiImage(imageUrl: string, ownerKind: ImageOwnerKind, ownerId:
     .returning();
 
   return row;
+}
+
+function extensionFromMime(mimeType: string | null, fallback: string): string {
+  if (!mimeType) return fallback;
+  const normalized = mimeType.split(";")[0]?.trim().toLowerCase();
+  if (normalized === "video/mp4" || normalized === "application/mp4") return "mp4";
+  if (normalized === "video/webm") return "webm";
+  if (normalized === "video/quicktime") return "mov";
+  return normalized?.split("/")[1]?.split("+")[0] || fallback;
+}
+
+function videoDurationForSection(section: { startSeconds: number; endSeconds: number }) {
+  const sectionDuration = Math.max(0, section.endSeconds - section.startSeconds);
+  return sectionDuration <= 6 ? 5 : 8;
 }
 
 export async function generateEntityImage(args: {
@@ -352,89 +368,104 @@ export async function generateClipVideo(args: {
   const apiKey = config?.openrouterApiKey?.trim();
   if (!apiKey) throw new GenerationError(400, "OpenRouter API key missing");
 
-  const [world] = await db.select().from(worlds).where(eq(worlds.id, args.worldId));
-  if (!world) throw new GenerationError(404, "World not found");
-
-  const [story] = await db.select().from(stories).where(eq(stories.id, args.storyId));
+  const [story] = await db
+    .select()
+    .from(stories)
+    .where(and(eq(stories.id, args.storyId), eq(stories.worldId, args.worldId)));
   if (!story) throw new GenerationError(404, "Story not found");
 
-  const [song] = await db.select().from(storySongs).where(eq(storySongs.id, args.songId));
-  if (!song) throw new GenerationError(404, "Song not found");
+  const [world] = await db.select().from(worlds).where(eq(worlds.id, story.worldId));
+  if (!world) throw new GenerationError(404, "World not found");
 
-  const [clip] = await db.select().from(songClips).where(eq(songClips.id, args.clipId));
+  const [song] = await db
+    .select()
+    .from(storySongs)
+    .where(and(eq(storySongs.id, args.songId), eq(storySongs.storyId, story.id)));
+  if (!song || song.archived) throw new GenerationError(404, "Song not found");
+
+  const [clip] = await db
+    .select()
+    .from(songClips)
+    .where(and(eq(songClips.id, args.clipId), eq(songClips.songId, song.id)));
   if (!clip) throw new GenerationError(404, "Clip not found");
 
-  const sections: any[] = (song.sections as any[]) || [];
+  const sections = song.sections || [];
   const section = sections[clip.sectionIndex];
   if (!section) throw new GenerationError(404, "Parent section not found for clip");
 
-  // Load the clip's image as the reference
   const [latestImage] = await db
     .select()
     .from(images)
     .where(and(eq(images.ownerKind, "song_clip"), eq(images.ownerId, clip.id)))
-    .orderBy(images.position.desc())
+    .orderBy(desc(images.position), desc(images.createdAt))
     .limit(1);
+  if (!latestImage) {
+    throw new GenerationError(400, "Clip must have an image before generating a video");
+  }
 
-  if (!latestImage) throw new Error("Clip must have an image before generating a video.");
+  const firstFrameDataUrl = await imageToDataUrl({
+    s3Key: latestImage.s3Key,
+    mimeType: latestImage.mimeType,
+  });
+  if (!firstFrameDataUrl) {
+    throw new GenerationError(500, "Failed to load clip image context");
+  }
 
-  const dataUrl = await imageToDataUrl({ s3Key: latestImage.s3Key, mimeType: latestImage.mimeType });
-  if (!dataUrl) throw new Error("Failed to load clip image context.");
-
-  const duration = section.endSeconds - section.startSeconds;
-  
+  const durationSeconds = videoDurationForSection(section);
   const prompt = [
-    `Generate a high-quality cinematic video based on this image for the world "${world.name}".`,
-    `World Art Style: ${world.artStyle}`,
+    `Create an image-to-video storyboard clip for the world "${world.name}".`,
+    `World art style: ${world.artStyle}`,
+    `Story context: ${story.description}`,
     "",
-    `Section Context: ${section.description}`,
-    `Scene Mood: ${section.mood}`,
-    `Clip Narrative: ${clip.description}`,
+    `Section context: ${section.description}`,
+    `Scene mood: ${section.mood}`,
+    `Clip action: ${clip.description}`,
     "",
     "Instructions:",
-    `- The video MUST follow the visual style, characters, and environment shown in the provided image.`,
-    `- The motion should be cinematic and natural.`,
-    `- Aim for a duration of approximately ${Math.min(duration, 10)} seconds.`,
-    `- No text overlays or watermarks.`,
-  ].filter(Boolean).join("\n");
-
-  const messages: ChatMessage[] = [
-    {
-      role: "user",
-      content: [
-        { type: "image_url", image_url: { url: dataUrl } },
-        { type: "text", text: prompt }
-      ]
-    }
-  ];
+    "- Use the provided image as the first frame and preserve its characters, environment, composition, and visual style.",
+    "- Add natural cinematic motion that supports the clip action without changing identities or location.",
+    "- Avoid text overlays, captions, credits, subtitles, logos, or watermarks.",
+  ].join("\n");
 
   const videoModel = getModelForTask("generate_video", config?.taskModels ?? {});
   const start = Date.now();
-  
-  const result = await callOpenRouter({
+  const result = await callOpenRouterVideo({
     apiKey,
     model: videoModel,
-    messages,
-    modalities: ["video", "text"],
+    prompt,
+    firstFrameDataUrl,
+    durationSeconds,
+    aspectRatio: "16:9",
+    resolution: "720p",
   });
 
   await db.insert(aiCalls).values({
     worldId: args.worldId,
     storyId: args.storyId,
-    task: `generate_clip_video`,
+    task: "generate_clip_video",
     model: videoModel,
-    prompt: serializePromptForStorage(messages),
-    response: result.videos.length > 0 ? `[${result.videos.length} videos generated]` : result.text,
-    costUsd: result.usage.costUsd?.toString(),
+    prompt: JSON.stringify(
+      {
+        prompt,
+        firstFrame: {
+          imageId: latestImage.id,
+          s3Key: latestImage.s3Key,
+          data: "[image elided]",
+        },
+      },
+      null,
+      2,
+    ),
+    response: `[video generated: ${result.jobId}]`,
+    costUsd: result.usage.costUsd != null ? result.usage.costUsd.toString() : null,
     durationMs: Date.now() - start,
   });
 
-  if (result.videos.length === 0) {
-    throw new Error("AI failed to generate a video. Response: " + result.text);
-  }
-
-  const videoRow = await saveAiVideo(result.videos[0], "song_clip", clip.id);
-  return videoRow;
+  return saveAiVideo({
+    buffer: result.video,
+    mimeType: result.mimeType,
+    durationSeconds,
+    ownerKind: "song_clip",
+    ownerId: clip.id,
+  });
 }
-
-

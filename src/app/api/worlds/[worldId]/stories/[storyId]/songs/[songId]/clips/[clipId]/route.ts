@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db/client";
-import { songClips } from "@/db/schema";
+import { songClips, videos } from "@/db/schema";
+import { deleteObject } from "@/lib/storage";
 import { eq, and } from "drizzle-orm";
 
 export async function PATCH(
@@ -62,16 +63,40 @@ export async function DELETE(
   const { songId, clipId } = await params;
 
   try {
+    const [existingClip] = await db
+      .select({ id: songClips.id })
+      .from(songClips)
+      .where(and(eq(songClips.id, clipId), eq(songClips.songId, songId)));
+
+    if (!existingClip) {
+      return NextResponse.json({ error: "Clip not found" }, { status: 404 });
+    }
+
+    const clipVideos = await db
+      .select()
+      .from(videos)
+      .where(and(eq(videos.ownerKind, "song_clip"), eq(videos.ownerId, clipId)));
+
+    if (clipVideos.length > 0) {
+      await db
+        .delete(videos)
+        .where(and(eq(videos.ownerKind, "song_clip"), eq(videos.ownerId, clipId)));
+    }
+
     const [deletedClip] = await db
       .delete(songClips)
       .where(and(eq(songClips.id, clipId), eq(songClips.songId, songId)))
       .returning();
 
-    if (!deletedClip) {
-      return NextResponse.json({ error: "Clip not found" }, { status: 404 });
-    }
+    await Promise.all(
+      clipVideos.map((video) =>
+        deleteObject(video.s3Key).catch((error) => {
+          console.error("Failed to delete clip video object:", error);
+        }),
+      ),
+    );
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: Boolean(deletedClip) });
   } catch (error) {
     console.error("Failed to delete clip:", error);
     return NextResponse.json(

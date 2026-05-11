@@ -78,6 +78,13 @@
       "when": 1778508988745,
       "tag": "0010_quiet_sabretooth",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1778511821077,
+      "tag": "0011_magical_forgotten_one",
+      "breakpoints": true
     }
   ]
 }

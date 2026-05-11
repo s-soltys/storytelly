@@ -215,6 +215,18 @@ export function EditNamedEntityForm({
     },
   });
 
+  const genImage = useMutation({
+    mutationFn: () =>
+      api.post<ImageDto>(`/api/worlds/${worldId}/generate-image`, {
+        kind,
+        id: entityId,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [cfg.ownerKind, entityId] });
+      refetch();
+    },
+  });
+
   if (!data) return <p className="text-[var(--color-muted)]">Loading…</p>;
 
   const imageCount = data.images?.length ?? 0;

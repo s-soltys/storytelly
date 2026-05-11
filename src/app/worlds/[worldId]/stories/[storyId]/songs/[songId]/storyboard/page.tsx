@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, type StorySongDto, type SongSectionDto, type SongClipDto } from "@/lib/api";
-import { ArrowLeft, Music, Wand2, FileAudio, FileText, LayoutList, Loader2, Check, ChevronDown, ChevronUp, Plus, Trash2, Image as ImageIcon, Video } from "lucide-react";
+import { api, type StorySongDto, type SongSectionDto, type SongClipDto, type VideoDto } from "@/lib/api";
+import { ArrowLeft, Music, Wand2, FileAudio, FileText, LayoutList, Loader2, Check, ChevronDown, ChevronUp, Plus, Trash2, Image as ImageIcon, Video, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useEffect, useState, useCallback } from "react";
 
@@ -216,6 +216,17 @@ export default function StoryboardPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {song && !song.archived && (
+            <Button size="sm" variant="secondary" asChild>
+              <a
+                href={`/api/worlds/${worldId}/stories/${storyId}/songs/${songId}/storyboard/export`}
+                download
+              >
+                <Download className="h-4 w-4" />
+                Export ZIP
+              </a>
+            </Button>
+          )}
           {clips.length > 0 && (
             <Button
               size="sm"
@@ -313,9 +324,9 @@ export default function StoryboardPage() {
               onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
             />
 
-            {(analyze.error || transcribe.error) && (
+            {(analyze.error || transcribe.error || generateVideo.error) && (
               <p className="text-xs text-[var(--color-danger)]">
-                {((analyze.error || transcribe.error) as Error).message}
+                {((analyze.error || transcribe.error || generateVideo.error) as Error).message}
               </p>
             )}
 
@@ -439,7 +450,7 @@ export default function StoryboardPage() {
                                     <button
                                       type="button"
                                       onClick={() => {
-                                        if (confirm("Delete this clip and all its generated images/videos?")) {
+                                        if (confirm("Delete this clip and its generated videos? Existing image objects are not deleted.")) {
                                           deleteClip.mutate(clip.id);
                                         }
                                       }}
@@ -457,25 +468,25 @@ export default function StoryboardPage() {
                                   
                                   {clipVideo ? (
                                     <div className="relative aspect-video w-full overflow-hidden rounded bg-black/50 group/vid shadow-sm">
-                                      <video 
-                                        src={clipVideo.url} 
+                                      <video
+                                        src={clipVideo.url}
                                         controls
-                                        className="absolute inset-0 h-full w-full object-cover" 
+                                        className="absolute inset-0 h-full w-full object-cover"
                                       />
-                                      <div className="absolute top-2 right-2 opacity-0 group-hover/vid:opacity-100 transition-opacity">
+                                      <div className="absolute right-2 top-2 opacity-0 transition-opacity group-hover/vid:opacity-100">
                                         <Button
                                           size="sm"
                                           variant="secondary"
-                                          className="h-6 text-[8px] px-1.5 font-mono uppercase tracking-widest bg-black/60 hover:bg-black/80 border-white/10"
+                                          className="h-7 px-2 font-mono text-[9px] uppercase tracking-widest bg-black/50 hover:bg-black/80 border-white/20"
                                           disabled={isGeneratingVid}
                                           onClick={() => generateVideo.mutate(clip.id)}
                                         >
                                           {isGeneratingVid ? (
-                                            <Loader2 className="h-2 w-2 animate-spin mr-1" />
+                                            <Loader2 className="h-3 w-3 animate-spin mr-1" />
                                           ) : (
-                                            <Video className="h-2 w-2 mr-1" />
+                                            <Video className="h-3 w-3 mr-1" />
                                           )}
-                                          Regen
+                                          Regen Video
                                         </Button>
                                       </div>
                                     </div>
@@ -490,7 +501,7 @@ export default function StoryboardPage() {
                                       <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/60 opacity-0 group-hover/img:opacity-100 transition-opacity">
                                         <Button
                                           size="sm"
-                                          className="h-7 text-[9px] px-2 font-mono uppercase tracking-widest bg-[var(--color-accent)] hover:bg-[var(--color-accent)]/80 border-none"
+                                          className="h-7 px-2 font-mono text-[9px] uppercase tracking-widest"
                                           disabled={isGeneratingVid}
                                           onClick={() => generateVideo.mutate(clip.id)}
                                         >

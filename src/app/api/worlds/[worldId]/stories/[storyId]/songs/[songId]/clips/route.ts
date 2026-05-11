@@ -36,9 +36,7 @@ export async function GET(
       allVideos = await db
         .select()
         .from(videos)
-        .where(
-          inArray(videos.ownerId, clipIds)
-        );
+        .where(inArray(videos.ownerId, clipIds));
     }
 
     const clipsWithMedia = await Promise.all(clips.map(async (clip) => {
