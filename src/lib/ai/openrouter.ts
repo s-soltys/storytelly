@@ -23,6 +23,7 @@ export type OpenRouterUsage = {
 
 export type OpenRouterResult = {
   text: string;
+  images: string[];
   usage: OpenRouterUsage;
 };
 
@@ -53,6 +54,8 @@ export async function callOpenRouter(args: {
   messages: ChatMessage[];
   responseFormat?: { type: "json_object" };
   maxTokens?: number;
+  modalities?: string[];
+  imageConfig?: Record<string, unknown>;
   signal?: AbortSignal;
 }): Promise<OpenRouterResult> {
   const res = await fetch(ENDPOINT, {
@@ -67,6 +70,8 @@ export async function callOpenRouter(args: {
       messages: args.messages,
       response_format: args.responseFormat,
       max_tokens: args.maxTokens,
+      modalities: args.modalities,
+      image_config: args.imageConfig,
       usage: { include: true },
     }),
     signal: args.signal,
@@ -93,15 +98,16 @@ export async function callOpenRouter(args: {
   }
 
   const text = extractText(data);
-  if (!text) {
+  const images = extractImages(data);
+  if (!text && images.length === 0) {
     throw new OpenRouterError(
-      "OpenRouter response missing text content",
+      "OpenRouter response missing both text and image content",
       res.status,
       raw,
     );
   }
 
-  return { text, usage: extractUsage(data) };
+  return { text: text || "", images, usage: extractUsage(data) };
 }
 
 export async function transcribeAudio(args: {
@@ -274,10 +280,47 @@ function extractText(data: unknown): string | null {
   if (typeof choice === "string") return choice;
   if (Array.isArray(choice)) {
     return choice
-      .map((p) => (typeof p === "object" && p && "text" in p ? String((p as { text: unknown }).text) : ""))
-      .join("");
+      .filter((p) => typeof p === "object" && p && "text" in p)
+      .map((p) => String((p as { text: unknown }).text))
+      .join("\n");
   }
   return null;
+}
+
+function extractImages(data: unknown): string[] {
+  const message = (data as {
+    choices?: { message?: { content?: unknown; images?: unknown[] } }[];
+  })?.choices?.[0]?.message;
+
+  if (!message) return [];
+
+  const found: string[] = [];
+
+  // OpenRouter specific images array
+  if (Array.isArray(message.images)) {
+    for (const img of message.images) {
+      if (typeof img === "string") {
+        found.push(img);
+      } else if (typeof img === "object" && img) {
+        if ("image_url" in img) {
+          found.push((img as { image_url: { url: string } }).image_url.url);
+        } else if ("url" in img) {
+          found.push((img as { url: string }).url);
+        }
+      }
+    }
+  }
+
+  // OpenAI style content parts
+  if (Array.isArray(message.content)) {
+    for (const p of message.content) {
+      if (typeof p === "object" && p && "image_url" in p) {
+        found.push((p as { image_url: { url: string } }).image_url.url);
+      }
+    }
+  }
+
+  return found;
 }
 
 function extractUsage(data: unknown): OpenRouterUsage {

@@ -23,7 +23,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { ImageUploader } from "@/components/ImageUploader";
-import { ArrowLeft, Trash2 } from "lucide-react";
+import { ArrowLeft, Trash2, Wand2 } from "lucide-react";
 
 export type NamedEntityKind = "character" | "location";
 
@@ -236,16 +236,26 @@ export function EditNamedEntityForm({
           <h1 className="font-mono text-3xl uppercase tracking-widest">
             {data.name}
           </h1>
-          <Button
-            variant="danger"
-            onClick={() => {
-              if (confirm(`Delete this ${cfg.label.toLowerCase()}?`))
-                del.mutate();
-            }}
-            disabled={del.isPending}
-          >
-            <Trash2 className="h-4 w-4" />
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="ghost"
+              onClick={() => genImage.mutate()}
+              disabled={genImage.isPending}
+            >
+              <Wand2 className={`h-4 w-4 mr-2 ${genImage.isPending ? "animate-spin" : ""}`} />
+              {genImage.isPending ? "Generating…" : "Generate image"}
+            </Button>
+            <Button
+              variant="danger"
+              onClick={() => {
+                if (confirm(`Delete this ${cfg.label.toLowerCase()}?`))
+                  del.mutate();
+              }}
+              disabled={del.isPending}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
       </div>
 

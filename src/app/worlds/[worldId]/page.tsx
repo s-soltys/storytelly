@@ -18,7 +18,7 @@ import { Card } from "@/components/ui/card";
 import { Input, Textarea } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ImageUploader } from "@/components/ImageUploader";
-import { ArrowLeft, ImageIcon, Lock, Plus, Trash2, X } from "lucide-react";
+import { ArrowLeft, ImageIcon, Lock, Plus, Trash2, Wand2, X } from "lucide-react";
 
 type SaveState = "idle" | "saving" | "saved" | "error" | "invalid";
 type NamedEntity = CharacterDto | LocationDto;
@@ -538,6 +538,23 @@ function InlineEntityRow({
     },
   });
 
+  const genImage = useMutation({
+    mutationFn: () =>
+      api.post<ImageDto>(`/api/worlds/${worldId}/generate-image`, {
+        kind: ownerKind,
+        id: item.id,
+      }),
+    onSuccess: (newImg) => {
+      qc.setQueryData([queryKey, worldId], (prev: NamedEntity[] | undefined) =>
+        prev?.map((entry) =>
+          entry.id === item.id
+            ? { ...entry, images: [...(entry.images ?? []), newImg] }
+            : entry,
+        ),
+      );
+    },
+  });
+
   const imageWarning =
     requireImage && (!item.images || item.images.length === 0)
       ? `${kindLabel}s need at least one image.`
@@ -563,18 +580,31 @@ function InlineEntityRow({
             </p>
           )}
         </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          disabled={del.isPending}
-          className="h-8 w-8"
-          onClick={() => {
-            if (confirm(`Delete this ${kindLabel.toLowerCase()}?`)) del.mutate();
-          }}
-        >
-          <Trash2 className="h-4 w-4" />
-        </Button>
+        <div className="flex gap-1">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            disabled={genImage.isPending}
+            className="h-8 w-8"
+            onClick={() => genImage.mutate()}
+            title="Generate image"
+          >
+            <Wand2 className={`h-4 w-4 ${genImage.isPending ? "animate-spin" : ""}`} />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            disabled={del.isPending}
+            className="h-8 w-8"
+            onClick={() => {
+              if (confirm(`Delete this ${kindLabel.toLowerCase()}?`)) del.mutate();
+            }}
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
       <div className="mt-2 space-y-1.5">
         <FieldLine label="Details">

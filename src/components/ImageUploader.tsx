@@ -22,15 +22,13 @@ export function ImageUploader({
   onChange,
   compact = false,
 }: Props) {
-  const [items, setItems] = useState<ImageDto[]>(initial);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  function update(next: ImageDto[]) {
-    setItems(next);
-    onChange?.(next);
-  }
+  // We derive the actual items displayed from the initial prop directly
+  // so it always stays in sync with React Query when it gets invalidated.
+  const items = initial;
 
   async function handleFiles(files: FileList | null) {
     if (!files || files.length === 0) return;
@@ -42,7 +40,7 @@ export function ImageUploader({
       form.append("ownerId", ownerId);
       for (const file of Array.from(files)) form.append("files", file);
       const created = await api.upload<ImageDto[]>("/api/uploads", form);
-      update([...items, ...created]);
+      onChange?.([...items, ...created]);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -55,7 +53,7 @@ export function ImageUploader({
     setError(null);
     try {
       await api.del(`/api/uploads?id=${id}`);
-      update(items.filter((i) => i.id !== id));
+      onChange?.(items.filter((i) => i.id !== id));
     } catch (e) {
       setError((e as Error).message);
     }

@@ -3,6 +3,8 @@ export const TASK_DEFAULTS = {
   song: "google/lyria-3-pro-preview",
   analyze_song: "openai/gpt-4o-audio-preview",
   transcription: "openai/gpt-4o-audio-preview",
+  generate_image: "google/gemini-2.5-flash-image",
+  vision: "google/gemini-2.0-flash-001",
 } as const;
 
 export type AiTask = keyof typeof TASK_DEFAULTS;
