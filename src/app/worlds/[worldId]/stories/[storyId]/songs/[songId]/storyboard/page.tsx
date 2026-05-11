@@ -383,7 +383,7 @@ export default function StoryboardPage() {
                                     <div className="relative aspect-video w-full overflow-hidden rounded bg-black/50">
                                       {/* eslint-disable-next-line @next/next/no-img-element */}
                                       <img 
-                                        src={`/api/images/${clipImage.id}`} 
+                                        src={clipImage.url} 
                                         alt="Clip" 
                                         className="absolute inset-0 h-full w-full object-cover" 
                                       />
