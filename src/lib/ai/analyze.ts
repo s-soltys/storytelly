@@ -126,9 +126,9 @@ export async function analyzeSongStructure(args: {
     maxTokens: 4000,
   });
 
-  const { sections } = parseStoryboardResponse(result.text);
+  const { sections: initialSections } = parseStoryboardResponse(result.text);
 
-  // Log
+  // Log Pass 1
   await db.insert(aiCalls).values({
     worldId: args.worldId,
     storyId: args.storyId,
@@ -140,11 +140,36 @@ export async function analyzeSongStructure(args: {
     durationMs: Date.now() - start,
   });
 
+  // Pass 2: Generate clip ideas proportionally using a text model
+  const textModel = getModelForTask("lyrics", config?.taskModels ?? {});
+  const pass2Messages = buildClipIdeasMessages(ctx, initialSections, officialDuration);
+  const pass2Start = Date.now();
+  const pass2Result = await callOpenRouter({
+    apiKey,
+    model: textModel,
+    messages: pass2Messages,
+    maxTokens: 4000,
+  });
+
+  const finalSections = parseClipIdeasResponse(pass2Result.text, initialSections);
+
+  // Log Pass 2
+  await db.insert(aiCalls).values({
+    worldId: args.worldId,
+    storyId: args.storyId,
+    task: "storyboard_clips",
+    model: textModel,
+    prompt: serializePromptForStorage(pass2Messages),
+    response: pass2Result.text,
+    costUsd: pass2Result.usage.costUsd?.toString(),
+    durationMs: Date.now() - pass2Start,
+  });
+
   await db
     .update(storySongs)
     .set({
-      sections,
-      prompt: serializePromptForStorage(messages),
+      sections: finalSections,
+      prompt: serializePromptForStorage(messages) + "\n\n---\n\n" + serializePromptForStorage(pass2Messages),
     })
     .where(eq(storySongs.id, song.id));
 }
@@ -161,11 +186,10 @@ function buildThematicAnalysisMessages(ctx: any, audioBase64: string, totalLengt
     "{",
     "  \"startSeconds\": number,",
     "  \"endSeconds\": number,",
-    "  \"description\": \"Detailed description of the musical and emotional content of this section\",",
+    "  \"description\": \"Extremely verbose and detailed description of the narrative action, musical intensity, and emotional content occurring in this section.\",",
     "  \"mood\": \"The emotional tone (e.g., 'Heroic', 'Melancholy', 'Aggressive')\",",
     "  \"characters\": \"comma-separated list of character names (CHOOSE ONLY FROM THE PROVIDED LIST)\",",
-    "  \"scenes\": \"comma-separated list of location names (CHOOSE ONLY FROM THE PROVIDED LIST)\",",
-    "  \"clipIdeas\": [\"Visual idea for a specific shot\", \"Another visual idea\", ...]",
+    "  \"scenes\": \"comma-separated list of location names (CHOOSE ONLY FROM THE PROVIDED LIST)\"",
     "}",
     "",
     "CRITICAL RULES:",
@@ -173,8 +197,7 @@ function buildThematicAnalysisMessages(ctx: any, audioBase64: string, totalLengt
     "2. EXACT ENDING: The last section's endSeconds MUST be exactly ${totalLength}.",
     "3. FULL COVERAGE: Zero gaps from 0 to ${totalLength}.",
     "4. ENTITY SELECTION: You MUST only use character names and location names from the provided lists below. Do not invent new characters or places.",
-    "5. CLIP IDEAS: Generate visual clip ideas proportional to the section length. Aim for roughly 1 unique clip idea for every 3-5 seconds of duration (e.g., a 15s section should have 3-5 clip ideas). Each idea should be cinematic and fit the world's art style.",
-    "6. FORMAT: Output a SINGLE JSON object with a \"sections\" array. You may include a brief thinking/analysis text BEFORE the JSON.",
+    "5. FORMAT: Output a SINGLE JSON object with a \"sections\" array. You may include a brief thinking/analysis text BEFORE the JSON.",
   ].join("\n");
 
   const user = [
@@ -222,5 +245,82 @@ function extractSrt(text: string): string {
     return text.slice(text.indexOf(match[0])).trim();
   }
   return text.trim();
+}
+
+function buildClipIdeasMessages(ctx: any, sections: SongSection[], totalLength: number): ChatMessage[] {
+  const system = [
+    "You are an expert cinematographer and storyboard artist.",
+    "Your task is to break down a sequence of timeline sections into specific, cinematic visual clip ideas.",
+    "",
+    "OBJECTIVE:",
+    "For each section provided, generate a list of clip ideas that match its duration. You MUST generate roughly 1 unique clip idea for every 2 to 5 seconds of the section's duration, deciding the frequency based on the dynamism of the scene and description.",
+    "",
+    "Each section in the \"sections\" array must follow this schema:",
+    "{",
+    "  \"startSeconds\": number,",
+    "  \"endSeconds\": number,",
+    "  \"_durationCalc\": \"e.g., 24 - 10 = 14 seconds\",",
+    "  \"_targetClipsCalc\": \"e.g., 14 seconds / 3 = ~5 clips (dynamism-dependent)\",",
+    "  \"clipIdeas\": [\"Visual idea for a specific shot\", ...]",
+    "}",
+    "",
+    "CRITICAL RULES:",
+    "1. DO NOT MODIFY THE TIMESTAMPS. Keep startSeconds and endSeconds exactly as provided.",
+    "2. CLIP IDEAS PROPORTION: You MUST generate 1 unique clip idea for every 2 to 5 seconds of the section's duration. Use the `_durationCalc` and `_targetClipsCalc` fields to do the math first based on the scene's dynamism, then provide exactly that number of clips in the `clipIdeas` array.",
+    "3. CINEMATOGRAPHY: Clip descriptions should be longer. Define the starting point (as is), describe what happens during the clip, and add a length suggestion (3-5 seconds).",
+    "4. CONSISTENCY: Ensure the ideas perfectly match the characters, scenes, and verbose descriptions of that section.",
+    "5. FORMAT: Output a SINGLE JSON object with a \"sections\" array.",
+  ].join("\n");
+
+  const sectionsContext = JSON.stringify(sections.map(s => ({
+    startSeconds: s.startSeconds,
+    endSeconds: s.endSeconds,
+    description: s.description,
+    mood: s.mood,
+    characters: s.characters,
+    scenes: s.scenes
+  })), null, 2);
+
+  const user = [
+    `# WORLD: ${ctx.world.name}`,
+    `Style: ${ctx.world.artStyle}`,
+    "",
+    `# STORY: ${ctx.story.name}`,
+    ctx.story.description,
+    "",
+    "# AVAILABLE CHARACTERS",
+    ...ctx.characters.map((c: any) => `- ${c.name}: ${c.description}`),
+    "",
+    "# AVAILABLE LOCATIONS",
+    ...ctx.locations.map((l: any) => `- ${l.name}: ${l.description}`),
+    "",
+    "# SECTIONS TO BREAK DOWN",
+    sectionsContext,
+    "",
+    "Generate the cinematic clip ideas for each section now. Remember: 1 clip per 2-5 seconds of duration, depending on scene dynamism.",
+  ].join("\n");
+
+  return [
+    { role: "system", content: system },
+    { role: "user", content: user }
+  ];
+}
+
+function parseClipIdeasResponse(text: string, originalSections: SongSection[]): SongSection[] {
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start === -1 || end === -1) throw new Error("AI failed to return a JSON object for clips.");
+
+  const jsonText = text.slice(start, end + 1);
+  const data = JSON.parse(jsonText);
+  const newSections = data.sections || [];
+
+  return originalSections.map(orig => {
+    const match = newSections.find((s: any) => s.startSeconds === orig.startSeconds && s.endSeconds === orig.endSeconds);
+    return {
+      ...orig,
+      clipIdeas: match?.clipIdeas || [],
+    };
+  });
 }
 

@@ -303,16 +303,10 @@ export default function StoryboardPage() {
                         key={i}
                         className="w-80 shrink-0 space-y-3 rounded-[var(--radius-control)] border border-[var(--color-border)]/50 bg-[var(--color-surface-2)]/30 p-3 text-xs"
                       >
-                        <div className="flex items-center justify-between border-b border-[var(--color-border)]/30 pb-1.5 font-mono text-[10px] uppercase tracking-tighter">
+                        <div className="border-b border-[var(--color-border)]/30 pb-1.5 font-mono text-[10px] uppercase tracking-tighter">
                           <span className="text-[var(--color-accent)] font-bold">
                             {formatSeconds(section.startSeconds)} - {formatSeconds(section.endSeconds)}
                           </span>
-                          <input
-                            value={section.mood}
-                            onChange={(e) => updateSection(i, "mood", e.target.value)}
-                            placeholder="Mood..."
-                            className="bg-transparent text-right text-[var(--color-muted)] focus:outline-none w-24"
-                          />
                         </div>
                         <textarea
                           value={section.description}
@@ -321,6 +315,15 @@ export default function StoryboardPage() {
                           className="h-20 w-full bg-transparent leading-snug text-[var(--color-fg)]/90 focus:outline-none resize-none"
                         />
                         <div className="space-y-1.5 border-t border-[var(--color-border)]/20 pt-2 text-[10px]">
+                          <div className="flex items-start gap-2">
+                            <span className="shrink-0 font-mono uppercase tracking-widest text-[var(--color-muted)]">Mood:</span>
+                            <textarea
+                              value={section.mood}
+                              onChange={(e) => updateSection(i, "mood", e.target.value)}
+                              className="flex-1 bg-transparent focus:outline-none resize-none"
+                              rows={1}
+                            />
+                          </div>
                           <div className="flex items-start gap-2">
                             <span className="shrink-0 font-mono uppercase tracking-widest text-[var(--color-muted)]">Chars:</span>
                             <textarea
