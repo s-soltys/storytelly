@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db/client";
 import { songClips, images } from "@/db/schema";
-import { eq, asc, inArray } from "drizzle-orm";
+import { eq, asc, inArray, and, max } from "drizzle-orm";
 import { presignedGetUrl } from "@/lib/storage";
 
 export async function GET(
@@ -34,7 +34,10 @@ export async function GET(
     }
 
     const clipsWithImages = await Promise.all(clips.map(async (clip) => {
-      const clipImages = allImages.filter(img => img.ownerId === clip.id && img.ownerKind === 'song_clip');
+      const clipImages = allImages
+        .filter(img => img.ownerId === clip.id && img.ownerKind === 'song_clip')
+        .sort((a, b) => b.position - a.position);
+        
       const hydratedImages = await Promise.all(clipImages.map(async (img) => ({
         ...img,
         url: await presignedGetUrl(img.s3Key),
@@ -50,6 +53,51 @@ export async function GET(
     console.error("Failed to fetch song clips:", error);
     return NextResponse.json(
       { error: "Failed to fetch song clips" },
+      { status: 500 },
+    );
+  }
+}
+
+export async function POST(
+  request: Request,
+  {
+    params,
+  }: {
+    params: Promise<{ worldId: string; storyId: string; songId: string }>;
+  },
+) {
+  const { songId } = await params;
+  
+  try {
+    const body = await request.json();
+    const { sectionIndex, description } = body;
+    
+    if (sectionIndex === undefined || !description) {
+      return NextResponse.json({ error: "Missing sectionIndex or description" }, { status: 400 });
+    }
+
+    const [{ value: maxPos }] = await db
+      .select({ value: max(songClips.position) })
+      .from(songClips)
+      .where(and(eq(songClips.songId, songId), eq(songClips.sectionIndex, sectionIndex)));
+      
+    const position = (maxPos ?? -1) + 1;
+
+    const [newClip] = await db
+      .insert(songClips)
+      .values({
+        songId,
+        sectionIndex,
+        description,
+        position,
+      })
+      .returning();
+
+    return NextResponse.json(newClip, { status: 201 });
+  } catch (error) {
+    console.error("Failed to create song clip:", error);
+    return NextResponse.json(
+      { error: "Failed to create song clip" },
       { status: 500 },
     );
   }
