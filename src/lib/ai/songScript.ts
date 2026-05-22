@@ -25,7 +25,9 @@ export type GenerationContext = {
     name: string;
     description: string;
     lengthSeconds: number;
+    lyrics: string | null;
   };
+  instructions?: string;
   world: { name: string; artStyle: string; description: string };
   storyCharacters: Array<{
     name: string;
@@ -52,7 +54,8 @@ export class GenerationError extends Error {
 export async function generateLyrics(args: {
   worldId: string;
   storyId: string;
-  lengthSeconds: number;
+  lengthSeconds?: number;
+  instructions?: string;
 }): Promise<{ lyrics: string }> {
   const ctx = await loadContext(args);
 
@@ -90,7 +93,8 @@ export async function generateLyrics(args: {
 async function loadContext(args: {
   worldId: string;
   storyId: string;
-  lengthSeconds: number;
+  lengthSeconds?: number;
+  instructions?: string;
 }): Promise<GenerationContext> {
   const [story] = await db
     .select()
@@ -155,8 +159,10 @@ async function loadContext(args: {
       id: story.id,
       name: story.name,
       description: story.description,
-      lengthSeconds: args.lengthSeconds,
+      lengthSeconds: args.lengthSeconds ?? story.lengthSeconds,
+      lyrics: story.lyrics || null,
     },
+    instructions: args.instructions,
     world: {
       name: world.name,
       artStyle: world.artStyle,
@@ -245,17 +251,32 @@ export async function buildLyricsMessages(
     }
   }
 
-  userParts.push({
-    type: "text",
-    text: [
-      "# STORY BRIEF",
-      `Title: ${ctx.story.name}`,
-      "",
-      ctx.story.description,
-      "",
-      `Target length: ${ctx.story.lengthSeconds} seconds.`,
-    ].join("\n"),
-  });
+  if (ctx.story.lyrics && ctx.instructions) {
+    userParts.push({
+      type: "text",
+      text: [
+        "# EXISTING LYRICS",
+        ctx.story.lyrics,
+        "",
+        "# INSTRUCTIONS FOR REVISION",
+        `Modify the existing lyrics according to these instructions: ${ctx.instructions}`,
+        "Keep the structure, style, and successful elements, but revise the lyrics based on the instructions.",
+        `Target length: ${ctx.story.lengthSeconds} seconds.`,
+      ].join("\n"),
+    });
+  } else {
+    userParts.push({
+      type: "text",
+      text: [
+        "# STORY BRIEF",
+        `Title: ${ctx.story.name}`,
+        "",
+        ctx.story.description,
+        "",
+        `Target length: ${ctx.story.lengthSeconds} seconds.`,
+      ].join("\n"),
+    });
+  }
 
   userParts.push({
     type: "text",

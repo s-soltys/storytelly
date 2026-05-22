@@ -6,7 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type StorySongDto } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Archive, Music, Upload } from "lucide-react";
+import { Archive, Music, Upload, RotateCw } from "lucide-react";
 
 export function StorySongsPanel({
   worldId,
@@ -23,6 +23,17 @@ export function StorySongsPanel({
     queryKey: ["story-songs", storyId],
     queryFn: () =>
       api.get<StorySongDto[]>(`/api/worlds/${worldId}/stories/${storyId}/songs`),
+  });
+
+  const generateSong = useMutation({
+    mutationFn: () =>
+      api.post<StorySongDto>(
+        `/api/worlds/${worldId}/stories/${storyId}/songs/generate`,
+        {},
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["story-songs", storyId] });
+    },
   });
 
   const upload = useMutation({
@@ -83,10 +94,22 @@ export function StorySongsPanel({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Button asChild size="sm">
-            <Link href={`/worlds/${worldId}/stories/${storyId}/songs/new`}>
-              <Music className="h-4 w-4" /> Generate
-            </Link>
+          <Button
+            type="button"
+            size="sm"
+            disabled={generateSong.isPending}
+            onClick={() => generateSong.mutate()}
+            className="cursor-pointer"
+          >
+            {generateSong.isPending ? (
+              <>
+                <RotateCw className="h-4 w-4 animate-spin" /> Generating…
+              </>
+            ) : (
+              <>
+                <Music className="h-4 w-4" /> Generate
+              </>
+            )}
           </Button>
         </div>
       </header>
@@ -119,20 +142,35 @@ export function StorySongsPanel({
         />
       </div>
 
-      {(upload.error || archive.error) && (
-        <p className="text-xs text-[var(--color-danger)]">
-          {((upload.error || archive.error) as Error).message}
+      {(upload.error || archive.error || generateSong.error) && (
+        <p className="text-xs text-[var(--color-danger)] font-mono">
+          {((upload.error || archive.error || generateSong.error) as Error).message}
         </p>
       )}
 
       {songs.isLoading ? (
         <p className="text-xs text-[var(--color-muted)]">Loading…</p>
-      ) : items.length === 0 ? (
+      ) : items.length === 0 && !generateSong.isPending ? (
         <p className="text-xs text-[var(--color-muted)]">
           No songs yet.
         </p>
       ) : (
         <div className="space-y-2.5">
+          {generateSong.isPending && (
+            <article className="animate-pulse space-y-2 rounded-[var(--radius-control)] border border-[var(--color-accent)]/30 bg-[color-mix(in_oklch,var(--color-accent)_5%,transparent)]/10 p-3">
+              <div className="flex items-center gap-3">
+                <RotateCw className="h-4 w-4 animate-spin text-[var(--color-accent)]" />
+                <div>
+                  <h3 className="font-mono text-xs uppercase tracking-widest text-[var(--color-accent)]">
+                    Generating song...
+                  </h3>
+                  <p className="mt-1 text-[11px] uppercase tracking-wider text-[var(--color-muted)]">
+                    This may take up to a minute
+                  </p>
+                </div>
+              </div>
+            </article>
+          )}
           {items.map((song) => (
             <SongRow
               key={song.id}

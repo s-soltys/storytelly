@@ -387,6 +387,13 @@ export class OpenRouterError extends Error {
   }
 }
 
+export function isOpenRouterImageSafetyError(error: unknown): boolean {
+  return (
+    error instanceof OpenRouterError &&
+    /input image|person\/face generation|safety settings/i.test(error.message)
+  );
+}
+
 function parseJsonObject(raw: string, status: number): Record<string, unknown> {
   try {
     const parsed = JSON.parse(raw);

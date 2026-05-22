@@ -1,6 +1,6 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, desc } from "drizzle-orm";
 import { db } from "@/db/client";
-import { stories, storyCharacters, storyLocations } from "@/db/schema";
+import { stories, storyCharacters, storyLocations, storyLyricsVersions } from "@/db/schema";
 import { storyUpdateSchema } from "@/lib/validation";
 import { jsonError, loadImages } from "@/lib/server";
 
@@ -59,6 +59,35 @@ export async function PATCH(req: Request, { params }: Ctx) {
         .where(and(eq(stories.id, storyId), eq(stories.worldId, worldId)))
         .returning();
       if (!updated) return null;
+
+      if (storyFields.lyrics !== undefined) {
+        const [lastVersion] = await tx
+          .select()
+          .from(storyLyricsVersions)
+          .where(eq(storyLyricsVersions.storyId, storyId))
+          .orderBy(desc(storyLyricsVersions.createdAt))
+          .limit(1);
+
+        if (!lastVersion || lastVersion.lyrics !== storyFields.lyrics) {
+          const oneMinuteAgo = new Date(Date.now() - 60000);
+          if (
+            lastVersion &&
+            lastVersion.createdAt >= oneMinuteAgo &&
+            lastVersion.prompt === "Manual edit"
+          ) {
+            await tx
+              .update(storyLyricsVersions)
+              .set({ lyrics: storyFields.lyrics, createdAt: new Date() })
+              .where(eq(storyLyricsVersions.id, lastVersion.id));
+          } else {
+            await tx.insert(storyLyricsVersions).values({
+              storyId,
+              lyrics: storyFields.lyrics,
+              prompt: "Manual edit",
+            });
+          }
+        }
+      }
     } else {
       const [exists] = await tx
         .select({ id: stories.id })

@@ -70,10 +70,20 @@ export type StoryDto = {
   worldId: string;
   name: string;
   description: string;
+  lengthSeconds: number;
+  lyrics: string;
   createdAt: string;
   characterIds?: string[];
   locationIds?: string[];
   moodImages?: ImageDto[];
+};
+
+export type StoryLyricsVersionDto = {
+  id: string;
+  storyId: string;
+  lyrics: string;
+  prompt: string | null;
+  createdAt: string;
 };
 
 export type StorySongDto = {

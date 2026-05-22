@@ -68,8 +68,16 @@ export const stories = pgTable(
       .references(() => worlds.id, { onDelete: "cascade" }),
     name: text("name").notNull().default("Untitled story"),
     description: text("description").notNull(),
+    lengthSeconds: integer("length_seconds").default(60).notNull(),
+    lyrics: text("lyrics").default("").notNull(),
     ...timestamps,
   },
+  (t) => [
+    check(
+      "stories_length_seconds_check",
+      sql`${t.lengthSeconds} % 15 = 0 AND ${t.lengthSeconds} BETWEEN 30 AND 180`,
+    ),
+  ],
 );
 
 export const storyCharacters = pgTable(
@@ -242,6 +250,24 @@ export const aiCalls = pgTable(
   ],
 );
 
+export const storyLyricsVersions = pgTable(
+  "story_lyrics_versions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    storyId: uuid("story_id")
+      .notNull()
+      .references(() => stories.id, { onDelete: "cascade" }),
+    lyrics: text("lyrics").notNull(),
+    prompt: text("prompt"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    index("story_lyrics_versions_story_idx").on(t.storyId, t.createdAt.desc()),
+  ],
+);
+
 export type World = typeof worlds.$inferSelect;
 export type NewWorld = typeof worlds.$inferInsert;
 export type Character = typeof characters.$inferSelect;
@@ -253,3 +279,4 @@ export type StorySong = typeof storySongs.$inferSelect;
 export type SongClip = typeof songClips.$inferSelect;
 export type Video = typeof videos.$inferSelect;
 export type AiCall = typeof aiCalls.$inferSelect;
+export type StoryLyricsVersion = typeof storyLyricsVersions.$inferSelect;

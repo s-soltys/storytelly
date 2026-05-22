@@ -6,19 +6,20 @@ import { useRouter } from "next/navigation";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { storyCreateSchema, type StoryCreate } from "@/lib/validation";
+import { storyCreateSchema, type StoryCreate, STORY_LENGTHS } from "@/lib/validation";
 import {
   api,
   type CharacterDto,
   type LocationDto,
   type StoryDto,
+  type StoryLyricsVersionDto,
 } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input, Textarea } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ImageUploader } from "@/components/ImageUploader";
 import { StorySongsPanel } from "@/components/StorySongsPanel";
-import { ArrowLeft, ImageIcon, Terminal, Trash2 } from "lucide-react";
+import { ArrowLeft, ImageIcon, Terminal, Trash2, History, ChevronDown, ChevronUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type Mode =
@@ -99,6 +100,7 @@ export function StoryForm(props: Mode) {
     control,
     register,
     getValues,
+    setValue,
     handleSubmit,
     reset,
     setError,
@@ -110,12 +112,44 @@ export function StoryForm(props: Mode) {
       description: "",
       characterIds: [],
       locationIds: [],
+      lengthSeconds: 60,
+      lyrics: "",
     },
   });
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const saveTimer = useRef<number | null>(null);
   const savedValues = useRef<StoryCreate | null>(null);
   const saveVersion = useRef(0);
+
+  const [instructions, setInstructions] = useState("");
+
+  const versions = useQuery({
+    queryKey: ["story-lyrics-versions", props.kind === "edit" ? props.storyId : null],
+    enabled: props.kind === "edit",
+    queryFn: () =>
+      api.get<StoryLyricsVersionDto[]>(
+        `/api/worlds/${worldId}/stories/${props.kind === "edit" ? props.storyId : ""}/lyrics/versions`,
+      ),
+  });
+
+  const generateLyrics = useMutation({
+    mutationFn: (args?: { instructions?: string }) =>
+      api.post<{ lyrics: string }>(
+        `/api/worlds/${worldId}/stories/${props.kind === "edit" ? props.storyId : ""}/lyrics`,
+        {
+          lengthSeconds: getValues("lengthSeconds"),
+          instructions: args?.instructions,
+        },
+      ),
+    onSuccess: (data) => {
+      setValue("lyrics", data.lyrics);
+      setInstructions("");
+      if (props.kind === "edit") {
+        qc.invalidateQueries({ queryKey: ["story", props.storyId] });
+        qc.invalidateQueries({ queryKey: ["story-lyrics-versions", props.storyId] });
+      }
+    },
+  });
 
   useEffect(() => {
     if (props.kind === "edit" && existing.data) {
@@ -124,6 +158,8 @@ export function StoryForm(props: Mode) {
         description: existing.data.description,
         characterIds: existing.data.characterIds ?? [],
         locationIds: existing.data.locationIds ?? [],
+        lengthSeconds: existing.data.lengthSeconds ?? 60,
+        lyrics: existing.data.lyrics ?? "",
       };
       savedValues.current = values;
       reset(values);
@@ -178,6 +214,8 @@ export function StoryForm(props: Mode) {
     return (
       a.name === b.name &&
       a.description === b.description &&
+      a.lengthSeconds === b.lengthSeconds &&
+      a.lyrics === b.lyrics &&
       a.characterIds.length === b.characterIds.length &&
       a.characterIds.every((id, idx) => id === b.characterIds[idx]) &&
       (a.locationIds ?? []).length === (b.locationIds ?? []).length &&
@@ -220,6 +258,8 @@ export function StoryForm(props: Mode) {
                 ...updated,
                 name: parsed.data.name,
                 description: parsed.data.description,
+                lengthSeconds: parsed.data.lengthSeconds,
+                lyrics: parsed.data.lyrics,
                 characterIds: parsed.data.characterIds,
                 locationIds: parsed.data.locationIds ?? [],
                 moodImages: prev.moodImages,
@@ -233,12 +273,15 @@ export function StoryForm(props: Mode) {
                   ...story,
                   name: parsed.data.name,
                   description: parsed.data.description,
+                  lengthSeconds: parsed.data.lengthSeconds,
+                  lyrics: parsed.data.lyrics,
                   characterIds: parsed.data.characterIds,
                   locationIds: parsed.data.locationIds ?? [],
                 }
               : story,
           ),
         );
+        qc.invalidateQueries({ queryKey: ["story-lyrics-versions", props.storyId] });
         setSaveState("saved");
       } catch (e) {
         if (saveVersion.current !== version) return;
@@ -383,6 +426,132 @@ export function StoryForm(props: Mode) {
             />
           </FieldLine>
 
+          {props.kind === "edit" && (
+            <>
+              <div className="border-t border-[var(--color-border)]/50 my-4" />
+              
+              <FieldLine label="Length">
+                <select
+                  value={getValues("lengthSeconds") || 60}
+                  onChange={(e) => {
+                    const val = Number(e.target.value);
+                    setValue("lengthSeconds", val);
+                    scheduleAutoSave({
+                      ...getValues(),
+                      lengthSeconds: val,
+                    });
+                  }}
+                  className="h-9 w-full rounded-[var(--radius-control)] border border-transparent bg-[var(--color-surface-2)]/35 px-2 text-sm text-[var(--color-fg)] outline-none hover:bg-[var(--color-surface-2)]/55 focus:border-[var(--color-border)] focus:bg-[var(--color-surface)]"
+                >
+                  {STORY_LENGTHS.map((value) => (
+                    <option key={value} value={value}>
+                      {value}s
+                    </option>
+                  ))}
+                </select>
+              </FieldLine>
+
+              <FieldLine label="Lyrics">
+                <div className="space-y-3">
+                  <Textarea
+                    rows={12}
+                    placeholder="Write or generate lyrics for this story..."
+                    className="border-transparent bg-[var(--color-surface-2)]/35 shadow-none hover:bg-[var(--color-surface-2)]/55 focus:bg-[var(--color-surface)] focus:border-[var(--color-border)] min-h-64 font-mono text-xs leading-relaxed"
+                    {...register("lyrics")}
+                    onChange={(e) => {
+                      register("lyrics").onChange(e);
+                      scheduleAutoSave({
+                        ...getValues(),
+                        lyrics: e.target.value,
+                      });
+                    }}
+                  />
+                  
+                  <div className="rounded-[var(--radius-control)] border border-[var(--color-border)]/50 bg-[var(--color-surface-2)]/20 p-3 space-y-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="font-mono text-[9px] uppercase tracking-wider text-[var(--color-muted)]">
+                        AI Lyrics Assistant
+                      </span>
+                      <div className="flex gap-2">
+                        {getValues("lyrics") ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            disabled={generateLyrics.isPending}
+                            onClick={() => generateLyrics.mutate(undefined)}
+                            className="h-7 text-xs cursor-pointer"
+                          >
+                            {generateLyrics.isPending && !instructions ? (
+                              <span className="animate-spin mr-1">↺</span>
+                            ) : null}
+                            Re-generate
+                          </Button>
+                        ) : (
+                          <Button
+                            type="button"
+                            size="sm"
+                            disabled={generateLyrics.isPending}
+                            onClick={() => generateLyrics.mutate(undefined)}
+                            className="h-7 text-xs cursor-pointer"
+                          >
+                            {generateLyrics.isPending && !instructions ? (
+                              <span className="animate-spin mr-1">↺</span>
+                            ) : null}
+                            Generate lyrics
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+
+                    {getValues("lyrics") && (
+                      <div className="flex gap-2">
+                        <Input
+                          placeholder="Tell AI what to change... (e.g. 'make it darker')"
+                          value={instructions}
+                          onChange={(e) => setInstructions(e.target.value)}
+                          disabled={generateLyrics.isPending}
+                          className="h-8 border-transparent bg-[var(--color-surface-2)]/30 text-xs"
+                        />
+                        <Button
+                          type="button"
+                          size="sm"
+                          disabled={generateLyrics.isPending || !instructions.trim()}
+                          onClick={() => generateLyrics.mutate({ instructions })}
+                          className="h-8 text-xs font-mono cursor-pointer"
+                        >
+                          {generateLyrics.isPending && instructions ? (
+                            <span className="animate-spin mr-1">↺</span>
+                          ) : null}
+                          Refine
+                        </Button>
+                      </div>
+                    )}
+                    
+                    {generateLyrics.error && (
+                      <p className="text-[10px] text-[var(--color-danger)] font-mono">
+                        {(generateLyrics.error as Error).message}
+                      </p>
+                    )}
+                  </div>
+
+                  {versions.data && versions.data.length > 0 && (
+                    <LyricsHistoryPanel
+                      versions={versions.data}
+                      onRestore={(lyricsText) => {
+                        setValue("lyrics", lyricsText);
+                        scheduleAutoSave({
+                          ...getValues(),
+                          lyrics: lyricsText,
+                        });
+                      }}
+                    />
+                  )}
+                </div>
+              </FieldLine>
+            </>
+          )}
+
           {errors.root?.message && (
             <p className="text-sm text-[var(--color-danger)]">
               {errors.root.message}
@@ -494,6 +663,68 @@ function MultiSelect({
           </button>
         );
       })}
+    </div>
+  );
+}
+
+function LyricsHistoryPanel({
+  versions,
+  onRestore,
+}: {
+  versions: StoryLyricsVersionDto[];
+  onRestore: (lyrics: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="rounded-[var(--radius-control)] border border-[var(--color-border)]/50 bg-[var(--color-surface-2)]/10 p-2.5">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="flex w-full items-center justify-between text-left cursor-pointer transition hover:text-[var(--color-fg)]"
+      >
+        <span className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-[var(--color-muted)]">
+          <History className="h-3.5 w-3.5 animate-none" /> Version History ({versions.length})
+        </span>
+        {open ? (
+          <ChevronUp className="h-3.5 w-3.5 text-[var(--color-muted)]" />
+        ) : (
+          <ChevronDown className="h-3.5 w-3.5 text-[var(--color-muted)]" />
+        )}
+      </button>
+
+      {open && (
+        <div className="mt-2.5 max-h-48 overflow-y-auto space-y-1.5 pr-1 scrollbar-thin">
+          {versions.map((ver) => (
+            <div
+              key={ver.id}
+              className="flex items-center justify-between gap-3 border-b border-[var(--color-border)]/30 pb-1.5 last:border-0 last:pb-0"
+            >
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-mono text-[10px] text-[var(--color-fg)]">
+                  {ver.prompt || "Manual Edit"}
+                </p>
+                <p className="text-[9px] text-[var(--color-muted)]">
+                  {new Date(ver.createdAt).toLocaleString()}
+                </p>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-6 px-2 text-[9px] uppercase font-mono tracking-wider text-[var(--color-accent)] hover:bg-[var(--color-surface-2)] cursor-pointer"
+                onClick={() => {
+                  if (confirm("Restore this version? Unsaved changes will be overwritten.")) {
+                    onRestore(ver.lyrics);
+                  }
+                }}
+              >
+                Restore
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

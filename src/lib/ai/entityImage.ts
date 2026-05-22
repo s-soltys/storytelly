@@ -4,9 +4,9 @@ import { worlds, characters, locations, stories, storySongs, songClips, images, 
 import { eq, and, inArray, max, desc } from "drizzle-orm";
 import { loadImages } from "@/lib/server";
 import { putObject } from "@/lib/storage";
-import { imageToDataUrl } from "./images";
-import { callOpenRouter, callOpenRouterVideo, type ChatMessage, type ChatPart } from "./openrouter";
-import { getModelForTask } from "./tasks";
+import { imageToDataUrl, MAX_DATA_URL_IMAGE_BYTES } from "./images";
+import { callOpenRouter, callOpenRouterVideo, isOpenRouterImageSafetyError, type ChatMessage, type ChatPart } from "./openrouter";
+import { chooseVideoDuration, getModelForTask, getVideoModelConfig } from "./tasks";
 import { serializePromptForStorage } from "./song";
 import { GenerationError } from "./songScript";
 
@@ -97,11 +97,6 @@ function extensionFromMime(mimeType: string | null, fallback: string): string {
   if (normalized === "video/webm") return "webm";
   if (normalized === "video/quicktime") return "mov";
   return normalized?.split("/")[1]?.split("+")[0] || fallback;
-}
-
-function videoDurationForSection(section: { startSeconds: number; endSeconds: number }) {
-  const sectionDuration = Math.max(0, section.endSeconds - section.startSeconds);
-  return sectionDuration <= 6 ? 5 : 8;
 }
 
 export async function generateEntityImage(args: {
@@ -393,79 +388,161 @@ export async function generateClipVideo(args: {
   const section = sections[clip.sectionIndex];
   if (!section) throw new GenerationError(404, "Parent section not found for clip");
 
-  const [latestImage] = await db
+  const clipImages = await db
     .select()
     .from(images)
     .where(and(eq(images.ownerKind, "song_clip"), eq(images.ownerId, clip.id)))
-    .orderBy(desc(images.position), desc(images.createdAt))
-    .limit(1);
+    .orderBy(desc(images.position), desc(images.createdAt));
+  const [latestImage] = clipImages;
   if (!latestImage) {
     throw new GenerationError(400, "Clip must have an image before generating a video");
   }
 
-  const firstFrameDataUrl = await imageToDataUrl({
-    s3Key: latestImage.s3Key,
-    mimeType: latestImage.mimeType,
-  });
-  if (!firstFrameDataUrl) {
-    throw new GenerationError(500, "Failed to load clip image context");
-  }
-
-  const durationSeconds = videoDurationForSection(section);
+  const videoModel = getModelForTask("generate_video", config?.taskModels ?? {});
+  const videoConfig = getVideoModelConfig(videoModel);
+  const durationSeconds = chooseVideoDuration(
+    videoModel,
+    Math.max(1, section.endSeconds - section.startSeconds),
+  );
   const prompt = [
-    `Create an image-to-video storyboard clip for the world "${world.name}".`,
-    `World art style: ${world.artStyle}`,
-    `Story context: ${story.description}`,
+    "Create an image-to-video storyboard clip from the provided first frame.",
     "",
-    `Section context: ${section.description}`,
-    `Scene mood: ${section.mood}`,
-    `Clip action: ${clip.description}`,
+    "Motion direction: add gentle natural movement to the visible subjects and environment.",
+    "Use subtle camera movement, soft ambient motion, and preserve the exact look of the first frame.",
+    "Keep the tone cinematic and adventurous.",
     "",
     "Instructions:",
-    "- Use the provided image as the first frame and preserve its characters, environment, composition, and visual style.",
-    "- Add natural cinematic motion that supports the clip action without changing identities or location.",
+    "- Use the provided image as the first frame and preserve the visible subjects, environment, composition, and visual style.",
+    "- Do not change identities, location, clothing, lighting, or scene layout.",
     "- Avoid text overlays, captions, credits, subtitles, logos, or watermarks.",
   ].join("\n");
 
-  const videoModel = getModelForTask("generate_video", config?.taskModels ?? {});
   const start = Date.now();
-  const result = await callOpenRouterVideo({
-    apiKey,
-    model: videoModel,
-    prompt,
-    firstFrameDataUrl,
-    durationSeconds,
-    aspectRatio: "16:9",
-    resolution: "720p",
-  });
+  let lastSafetyError: unknown = null;
+  let lastAttemptLog = "";
 
-  await db.insert(aiCalls).values({
-    worldId: args.worldId,
-    storyId: args.storyId,
-    task: "generate_clip_video",
-    model: videoModel,
-    prompt: JSON.stringify(
+  for (const image of clipImages) {
+    const firstFrameDataUrl = await imageToDataUrl({
+      s3Key: image.s3Key,
+      mimeType: image.mimeType,
+    });
+    const promptLog = JSON.stringify(
       {
+        clipId: clip.id,
         prompt,
         firstFrame: {
-          imageId: latestImage.id,
-          s3Key: latestImage.s3Key,
+          imageId: image.id,
+          s3Key: image.s3Key,
           data: "[image elided]",
         },
       },
       null,
       2,
-    ),
-    response: `[video generated: ${result.jobId}]`,
-    costUsd: result.usage.costUsd != null ? result.usage.costUsd.toString() : null,
+    );
+    lastAttemptLog = promptLog;
+
+    if (!firstFrameDataUrl) {
+      lastSafetyError = new GenerationError(
+        413,
+        `Clip image is too large for video generation. Regenerate the clip image or upload an image under ${Math.round(
+          MAX_DATA_URL_IMAGE_BYTES / 1_000_000,
+        )} MB.`,
+        { imageId: image.id, sizeBytes: image.sizeBytes },
+      );
+      continue;
+    }
+
+    try {
+      const result = await callOpenRouterVideo({
+        apiKey,
+        model: videoModel,
+        prompt,
+        firstFrameDataUrl,
+        durationSeconds,
+        aspectRatio: videoConfig.aspectRatio,
+        resolution: videoConfig.resolution,
+      });
+
+      const video = await saveAiVideo({
+        buffer: result.video,
+        mimeType: result.mimeType,
+        durationSeconds,
+        ownerKind: "song_clip",
+        ownerId: clip.id,
+      });
+
+      await db.insert(aiCalls).values({
+        worldId: args.worldId,
+        storyId: args.storyId,
+        task: "generate_clip_video",
+        model: videoModel,
+        prompt: promptLog,
+        response: `[video generated: ${result.jobId}]`,
+        costUsd: result.usage.costUsd != null ? result.usage.costUsd.toString() : null,
+        durationMs: Date.now() - start,
+      });
+
+      return video;
+    } catch (error) {
+      if (isOpenRouterImageSafetyError(error)) {
+        lastSafetyError = error;
+        await logClipVideoFailure({
+          worldId: args.worldId,
+          storyId: args.storyId,
+          model: videoModel,
+          prompt: promptLog,
+          response: `[failed:image-safety-retrying] ${(error as Error).message}`,
+          durationMs: Date.now() - start,
+        });
+        continue;
+      }
+
+      await logClipVideoFailure({
+        worldId: args.worldId,
+        storyId: args.storyId,
+        model: videoModel,
+        prompt: promptLog,
+        response: `[failed] ${(error as Error).message}`,
+        durationMs: Date.now() - start,
+      });
+      throw error;
+    }
+  }
+
+  await logClipVideoFailure({
+    worldId: args.worldId,
+    storyId: args.storyId,
+    model: videoModel,
+    prompt: lastAttemptLog,
+    response: `[failed] ${(lastSafetyError as Error | null)?.message || "No usable clip image"}`,
     durationMs: Date.now() - start,
   });
+  throw new GenerationError(
+    422,
+    "Veo rejected the available clip image(s) for person/face safety. Try regenerating the clip image with fewer visible faces, use a wider/environmental shot, or use a non-Google video model for this clip.",
+  );
+}
 
-  return saveAiVideo({
-    buffer: result.video,
-    mimeType: result.mimeType,
-    durationSeconds,
-    ownerKind: "song_clip",
-    ownerId: clip.id,
-  });
+async function logClipVideoFailure(args: {
+  worldId: string;
+  storyId: string;
+  model: string;
+  prompt: string;
+  response: string;
+  durationMs: number;
+}) {
+  await db
+    .insert(aiCalls)
+    .values({
+      worldId: args.worldId,
+      storyId: args.storyId,
+      task: "generate_clip_video",
+      model: args.model,
+      prompt: args.prompt,
+      response: args.response,
+      durationMs: args.durationMs,
+    })
+    .catch((logError) => {
+      console.error("Failed to log clip video generation error:", logError);
+    });
 }

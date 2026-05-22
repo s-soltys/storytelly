@@ -85,6 +85,13 @@
       "when": 1778511821077,
       "tag": "0011_magical_forgotten_one",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1779468247821,
+      "tag": "0012_milky_the_fury",
+      "breakpoints": true
     }
   ]
 }
