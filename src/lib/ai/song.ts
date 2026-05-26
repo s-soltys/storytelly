@@ -193,12 +193,51 @@ export async function loadSongContext(args: {
   };
 }
 
+/** Format seconds as mm:ss */
+function toTimestamp(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
+/**
+ * Build a timestamp-based song structure scaffold so Lyria understands the
+ * required duration from the structure itself, not just a text hint.
+ * Sections are proportional to the requested length.
+ */
+function buildSongTimeline(totalSeconds: number): string {
+  // Proportional section layout: intro 10%, verse1 20%, chorus 20%,
+  // verse2 20%, chorus2 20%, outro 10% — clamped to integer seconds.
+  const proportions: Array<{ name: string; weight: number }> = [
+    { name: "Intro", weight: 0.1 },
+    { name: "Verse 1", weight: 0.2 },
+    { name: "Chorus", weight: 0.2 },
+    { name: "Verse 2", weight: 0.2 },
+    { name: "Chorus", weight: 0.2 },
+    { name: "Outro", weight: 0.1 },
+  ];
+
+  const lines: string[] = [];
+  let cursor = 0;
+  for (const section of proportions) {
+    const dur = Math.round(section.weight * totalSeconds);
+    const start = cursor;
+    const end = Math.min(cursor + dur, totalSeconds);
+    lines.push(`[${toTimestamp(start)} - ${toTimestamp(end)}] ${section.name}`);
+    cursor = end;
+    if (cursor >= totalSeconds) break;
+  }
+  return lines.join("\n");
+}
+
 async function buildSongMessages(ctx: SongContext): Promise<ChatMessage[]> {
+  const durationMmSs = toTimestamp(ctx.story.lengthSeconds);
   const system = [
     "You compose complete songs for AI music videos.",
-    "Generate a polished full song as MP3 audio.",
+    `Generate a polished full song as MP3 audio. The song MUST be exactly ${ctx.story.lengthSeconds} seconds long (${durationMmSs}). Do not cut short or exceed this duration.`,
     "Use the provided world, story, characters, locations, and lyrics if present.",
     "Do not mimic a named real artist. Use descriptive musical traits instead.",
+    "Follow the provided song timeline structure precisely — each section occupies the stated time range.",
   ].join("\n");
 
   const parts: ChatPart[] = [
@@ -210,11 +249,15 @@ async function buildSongMessages(ctx: SongContext): Promise<ChatMessage[]> {
         ctx.world.description,
         "",
         `# STORY: ${ctx.story.name}`,
-        `Target length: ${ctx.story.lengthSeconds} seconds`,
+        `Required duration: ${ctx.story.lengthSeconds} seconds (${durationMmSs}) — this is a hard requirement.`,
         ctx.story.description,
         "",
+        "# SONG TIMELINE",
+        `Total length: ${durationMmSs}`,
+        buildSongTimeline(ctx.story.lengthSeconds),
+        "",
         "# LYRICS",
-        ctx.story.lyrics?.trim() || "No fixed lyrics. Compose fitting original lyrics.",
+        ctx.story.lyrics?.trim() || "No fixed lyrics. Compose fitting original lyrics that fill the full timeline above.",
       ].join("\n"),
     },
   ];
@@ -265,7 +308,7 @@ async function buildSongMessages(ctx: SongContext): Promise<ChatMessage[]> {
 
   parts.push({
     type: "text",
-    text: "Create the complete song audio now.",
+    text: `Create the complete song audio now. The final audio MUST be exactly ${ctx.story.lengthSeconds} seconds (${durationMmSs}) as specified in the timeline above.`,
   });
 
   return [

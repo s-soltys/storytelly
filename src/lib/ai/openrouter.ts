@@ -226,6 +226,7 @@ export async function callOpenRouterAudio(args: {
     completionTokens: null,
     costUsd: null,
   };
+  const seenJson: any[] = []; // to help debug
 
   function handleEvent(raw: string) {
     const lines = raw
@@ -235,10 +236,13 @@ export async function callOpenRouterAudio(args: {
       .map((line) => line.slice(5).trim());
     for (const line of lines) {
       if (!line || line === "[DONE]") continue;
-      const parsed = JSON.parse(line) as {
-        choices?: Array<{ delta?: { audio?: { data?: string; transcript?: string } } }>;
-        usage?: Record<string, unknown>;
-      };
+      let parsed: any;
+      try {
+        parsed = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      seenJson.push(parsed);
       const audio = parsed.choices?.[0]?.delta?.audio;
       if (audio?.data) audioChunks.push(audio.data);
       if (audio?.transcript) transcript += audio.transcript;
@@ -259,7 +263,11 @@ export async function callOpenRouterAudio(args: {
 
   const audio = Buffer.from(audioChunks.join(""), "base64");
   if (audio.length === 0) {
-    throw new OpenRouterError("OpenRouter response missing audio content", res.status, "");
+    throw new OpenRouterError(
+      `OpenRouter response missing audio content. Saw events: ${JSON.stringify(seenJson).slice(0, 500)}`,
+      res.status,
+      "",
+    );
   }
 
   return {

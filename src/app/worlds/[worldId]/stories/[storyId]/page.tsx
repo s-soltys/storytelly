@@ -1,12 +1,12 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { StoryForm } from "@/components/forms/StoryForm";
+import { StoryWorkshop } from "@/components/story/StoryWorkshop";
 
 export default function StoryPage() {
   const { worldId, storyId } = useParams<{
     worldId: string;
     storyId: string;
   }>();
-  return <StoryForm kind="edit" worldId={worldId} storyId={storyId} />;
+  return <StoryWorkshop worldId={worldId} storyId={storyId} />;
 }

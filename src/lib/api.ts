@@ -156,3 +156,17 @@ export type AiCallDto = {
   durationMs: number | null;
   createdAt: string;
 };
+
+export type DevelopResponse = {
+  reply: string;
+  lyrics?: string;
+  storyUpdates?: {
+    description?: string;
+    characterIds?: string[];
+    locationIds?: string[];
+    lengthSeconds?: number;
+  };
+  nextPhase: "foundation" | "lyrics" | "refine";
+  chips?: { id: string; label: string }[];
+  multiSelect?: boolean;
+};

@@ -184,16 +184,31 @@ async function loadContext(args: {
 export async function buildLyricsMessages(
   ctx: GenerationContext,
 ): Promise<ChatMessage[]> {
-  const system = [
-    "You are a lyricist writing lyrics for a short AI-generated music video.",
-    "Output lyrics only. Do NOT add prose commentary, explanations, or markdown fences.",
-    "Format rules:",
-    "- Use compact song sections like [Verse], [Pre-Chorus], [Chorus], [Bridge], or [Outro] where useful.",
-    "- Keep stage directions sparse; lyrics should be singable, not a screenplay.",
-    "- Let named characters, locations, and world details influence imagery and voice.",
-    "- Pace the lyrics for the requested song length.",
-    "- Keep the emotional tone consistent with the world's art style and the story.",
-  ].join("\n");
+  const isRevision = Boolean(ctx.story.lyrics && ctx.instructions);
+
+  const system = isRevision
+    ? [
+        "You are a lyricist revising existing song lyrics for an AI-generated music video.",
+        "Your PRIMARY focus is the existing lyrics and the revision instructions — follow them precisely.",
+        "The world, character, and location details are SUPPORTING background context only; use them for tone and imagery consistency, not as the main driver of changes.",
+        "Output revised lyrics only. Do NOT add prose commentary, explanations, or markdown fences.",
+        "Format rules (Lyria / AI Song Generator Guidelines):",
+        "- Preserve the song structure but ENSURE every section begins with a detailed meta tag.",
+        "- Include TIMING and MUSICAL STYLE in every meta tag. Example: [Verse 1: 0:00-0:15, Upbeat Acoustic, Melancholy] or [Chorus: 0:15-0:35, Epic Orchestral, High Energy].",
+        "- Keep stage directions sparse; lyrics should be singable.",
+        "- Ensure the pacing and timestamps align exactly with the requested song length.",
+      ].join("\n")
+    : [
+        "You are a lyricist writing lyrics for a short AI-generated music video.",
+        "Output lyrics only. Do NOT add prose commentary, explanations, or markdown fences.",
+        "Format rules (Lyria / AI Song Generator Guidelines):",
+        "- Every single section MUST begin with a detailed structural meta tag.",
+        "- Include TIMING and MUSICAL STYLE in every meta tag. Example: [Verse 1: 0:00-0:15, Upbeat Acoustic, Melancholy] or [Chorus: 0:15-0:35, Epic Orchestral, High Energy].",
+        "- The style descriptors in the tags should evolve with the emotional arc of the story.",
+        "- Keep stage directions sparse; lyrics should be singable.",
+        "- Let named characters, locations, and world details influence imagery and voice.",
+        "- Calculate the pacing carefully so the timestamps sum up exactly to the requested song length.",
+      ].join("\n");
 
   const userParts: ChatPart[] = [];
 
@@ -255,12 +270,15 @@ export async function buildLyricsMessages(
     userParts.push({
       type: "text",
       text: [
-        "# EXISTING LYRICS",
+        "--- The above world/character/location details are background reference only. ---",
+        "",
+        "# EXISTING LYRICS (primary focus)",
         ctx.story.lyrics,
         "",
-        "# INSTRUCTIONS FOR REVISION",
-        `Modify the existing lyrics according to these instructions: ${ctx.instructions}`,
-        "Keep the structure, style, and successful elements, but revise the lyrics based on the instructions.",
+        "# REVISION INSTRUCTIONS (primary focus)",
+        ctx.instructions,
+        "",
+        "Apply the revision instructions to the existing lyrics. Preserve what works; only change what the instructions ask for.",
         `Target length: ${ctx.story.lengthSeconds} seconds.`,
       ].join("\n"),
     });
