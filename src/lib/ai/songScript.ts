@@ -215,10 +215,16 @@ export async function buildLyricsMessages(
   userParts.push({
     type: "text",
     text: [
+      "--- The following world, story, and character details are SUPPORTING background context only. ---",
+      "--- Your primary focus must be the lyrics and the instructions. ---",
+      "",
       `# WORLD: ${ctx.world.name}`,
       `Art style: ${ctx.world.artStyle}`,
       "",
       ctx.world.description,
+      "",
+      `# STORY BRIEF: ${ctx.story.name}`,
+      ctx.story.description,
     ].join("\n"),
   });
 
@@ -228,19 +234,6 @@ export async function buildLyricsMessages(
       lines.push(`## ${loc.name}`, loc.description, "");
     }
     userParts.push({ type: "text", text: lines.join("\n") });
-
-    for (const loc of ctx.storyLocations) {
-      for (const img of loc.images) {
-        const url = await imageToDataUrl(img);
-        if (url) {
-          userParts.push({
-            type: "text",
-            text: `Reference image for location "${loc.name}":`,
-          });
-          userParts.push({ type: "image_url", image_url: { url } });
-        }
-      }
-    }
   }
 
   if (ctx.storyCharacters.length) {
@@ -253,32 +246,20 @@ export async function buildLyricsMessages(
         type: "text",
         text: `## ${ch.name}\n${ch.description}`,
       });
-      for (const img of ch.images) {
-        const url = await imageToDataUrl(img);
-        if (url) {
-          userParts.push({
-            type: "text",
-            text: `Reference image for ${ch.name}:`,
-          });
-          userParts.push({ type: "image_url", image_url: { url } });
-        }
-      }
     }
   }
 
-  if (ctx.story.lyrics && ctx.instructions) {
+  if (ctx.story.lyrics) {
     userParts.push({
       type: "text",
       text: [
-        "--- The above world/character/location details are background reference only. ---",
-        "",
         "# EXISTING LYRICS (primary focus)",
         ctx.story.lyrics,
         "",
-        "# REVISION INSTRUCTIONS (primary focus)",
-        ctx.instructions,
+        "# INSTRUCTIONS (primary focus)",
+        ctx.instructions || "Refine the lyrics.",
         "",
-        "Apply the revision instructions to the existing lyrics. Preserve what works; only change what the instructions ask for.",
+        "Apply the instructions to the existing lyrics. Preserve what works; only change what the instructions ask for.",
         `Target length: ${ctx.story.lengthSeconds} seconds.`,
       ].join("\n"),
     });
@@ -286,10 +267,8 @@ export async function buildLyricsMessages(
     userParts.push({
       type: "text",
       text: [
-        "# STORY BRIEF",
-        `Title: ${ctx.story.name}`,
-        "",
-        ctx.story.description,
+        "# INSTRUCTIONS (primary focus)",
+        ctx.instructions || "Write the first draft of the lyrics.",
         "",
         `Target length: ${ctx.story.lengthSeconds} seconds.`,
       ].join("\n"),

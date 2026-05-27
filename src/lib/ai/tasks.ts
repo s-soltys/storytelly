@@ -1,4 +1,5 @@
 export const TASK_DEFAULTS = {
+  chat: "google/gemini-3.1-flash-lite",
   lyrics: "google/gemini-3-flash-preview",
   song: "google/lyria-3-pro-preview",
   analyze_song: "openai/gpt-4o-audio-preview",

@@ -17,83 +17,7 @@ import { Button } from "@/components/ui/button";
 import { ConversationThread } from "./ConversationThread";
 import { ChatInput } from "./ChatInput";
 import { ArtifactPanel } from "./ArtifactPanel";
-import type {
-  ConversationMessage,
-  ConversationPhase,
-  ChipSuggestion,
-  DevelopResponse,
-  DevelopRequest,
-} from "./types";
-import { STORY_LENGTHS } from "@/lib/validation";
-
-// ─── Opening questions per phase ─────────────────────────────────────────────
-
-function buildOpeningMessages(
-  story: StoryDto,
-  characters: CharacterDto[],
-  locations: LocationDto[],
-): ConversationMessage[] {
-  const hasLyrics = Boolean(story.lyrics?.trim());
-  const hasDescription = Boolean(story.description?.trim());
-  const hasCharacters = (story.characterIds ?? []).length > 0;
-
-  // Returning to a story that already has lyrics → jump straight to refine
-  if (hasLyrics) {
-    return [
-      {
-        id: nanoid(),
-        role: "system",
-        content: `Here's where we left off with "${story.name}". The lyrics draft is on the right. What would you like to change, or say "looks good" to move on to generating a song.`,
-      },
-    ];
-  }
-
-  // Story has description + characters → skip to length selection
-  if (hasDescription && hasCharacters) {
-    return [
-      {
-        id: nanoid(),
-        role: "system",
-        content: `"${story.name}" is ready to go — I have the story and characters. Pick a song length to generate your first lyrics draft.`,
-        chips: STORY_LENGTHS.map((s) => ({ id: String(s), label: `${s}s` })),
-      },
-    ];
-  }
-
-  // Fresh story — start with description if missing
-  if (!hasDescription) {
-    return [
-      {
-        id: nanoid(),
-        role: "system",
-        content: `Let's develop "${story.name}". What happens in this story? Describe the key beats, the conflict, and the emotional arc — even a rough sketch is great.`,
-      },
-    ];
-  }
-
-  // Has description but no characters selected
-  return [
-    {
-      id: nanoid(),
-      role: "system",
-      content: `"${story.name}" has a story direction. ${characters.length > 0 ? "Which characters are part of it?" : "Add some characters to your world first, then come back."}`,
-      chips:
-        characters.length > 0
-          ? characters.map((c) => ({ id: c.id, label: c.name }))
-          : [],
-      multiSelect: true,
-    },
-  ];
-}
-
-function initialPhase(story: StoryDto): ConversationPhase {
-  if (story.lyrics?.trim()) return "refine";
-  const hasDescription = Boolean(story.description?.trim());
-  const hasCharacters = (story.characterIds ?? []).length > 0;
-  if (hasDescription && hasCharacters) return "lyrics";
-  return "foundation";
-}
-
+import type { ConversationMessage, DevelopRequest, DevelopResponse } from "./types";
 // ─── Main Workshop ─────────────────────────────────────────────────────────
 
 interface StoryWorkshopProps {
@@ -127,6 +51,13 @@ export function StoryWorkshop({ worldId, storyId }: StoryWorkshopProps) {
         `/api/worlds/${worldId}/stories/${storyId}/lyrics/versions`,
       ),
   });
+  const messagesQ = useQuery({
+    queryKey: ["story-messages", storyId],
+    queryFn: () =>
+      api.get<ConversationMessage[]>(
+        `/api/worlds/${worldId}/stories/${storyId}/messages`,
+      ),
+  });
 
   // ── Local story state (mirrors DB, updated optimistically) ───────────────
   const [localStory, setLocalStory] = useState<StoryDto | null>(null);
@@ -138,22 +69,10 @@ export function StoryWorkshop({ worldId, storyId }: StoryWorkshopProps) {
   }, [storyQ.data, localStory]);
 
   // ── Conversation state ────────────────────────────────────────────────────
-  const [messages, setMessages] = useState<ConversationMessage[]>([]);
-  const [phase, setPhase] = useState<ConversationPhase>("foundation");
   const [selectedChips, setSelectedChips] = useState<Set<string>>(new Set());
-  const conversationBootstrapped = useRef(false);
-
-  useEffect(() => {
-    if (conversationBootstrapped.current) return;
-    if (!storyQ.data || !charsQ.data || !locsQ.data) return;
-
-    const opening = buildOpeningMessages(storyQ.data, charsQ.data, locsQ.data);
-    const startPhase = initialPhase(storyQ.data);
-    setMessages(opening);
-    setPhase(startPhase);
-    setLocalStory(storyQ.data);
-    conversationBootstrapped.current = true;
-  }, [storyQ.data, charsQ.data, locsQ.data]);
+  const [optimisticMessages, setOptimisticMessages] = useState<ConversationMessage[]>([]);
+  
+  const allMessages = [...(messagesQ.data || []), ...optimisticMessages];
 
   // ── Autosave ─────────────────────────────────────────────────────────────
   const [saveState, setSaveState] = useState<SaveState>("idle");
@@ -211,71 +130,45 @@ export function StoryWorkshop({ worldId, storyId }: StoryWorkshopProps) {
       loading: true,
     };
 
-    setMessages((prev) => [...prev, userMsg, loadingMsg]);
+    setOptimisticMessages((prev) => [...prev, userMsg, loadingMsg]);
     setSelectedChips(new Set());
     setSending(true);
 
     try {
-      const body: DevelopRequest = {
-        message: text,
-        phase,
-        currentState: {
-          characterIds: localStory.characterIds ?? [],
-          locationIds: localStory.locationIds ?? [],
-          lengthSeconds: localStory.lengthSeconds,
-          description: localStory.description,
-          lyrics: localStory.lyrics ?? "",
-        },
-      };
+      const body: DevelopRequest = { message: text };
 
       const res = await api.post<DevelopResponse>(
         `/api/worlds/${worldId}/stories/${storyId}/develop`,
         body,
       );
 
-      // Apply story updates
-      if (res.storyUpdates) {
-        const updates: Partial<StoryDto> = {};
-        if (res.storyUpdates.description !== undefined)
-          updates.description = res.storyUpdates.description;
-        if (res.storyUpdates.characterIds !== undefined)
-          updates.characterIds = res.storyUpdates.characterIds;
-        if (res.storyUpdates.locationIds !== undefined)
-          updates.locationIds = res.storyUpdates.locationIds;
-        if (res.storyUpdates.lengthSeconds !== undefined)
-          updates.lengthSeconds = res.storyUpdates.lengthSeconds;
-        if (res.lyrics !== undefined) updates.lyrics = res.lyrics;
-        updateLocalStory(updates);
-      } else if (res.lyrics !== undefined) {
-        updateLocalStory({ lyrics: res.lyrics });
+      // Invalidate to fetch fresh messages from the DB (which now include user, assistant, tools)
+      await qc.invalidateQueries({ queryKey: ["story-messages", storyId] });
+      if (res.toolsExecuted) {
+        await qc.invalidateQueries({ queryKey: ["story", storyId] });
+        await qc.invalidateQueries({ queryKey: ["story-lyrics-versions", storyId] });
+        await qc.invalidateQueries({ queryKey: ["stories", worldId] });
       }
 
-      // Update phase
-      setPhase(res.nextPhase);
-
-      // Replace loading message with reply
-      const replyMsg: ConversationMessage = {
-        id: nanoid(),
-        role: "system",
-        content: res.reply,
-        chips: res.chips,
-        multiSelect: res.multiSelect,
-      };
-      setMessages((prev) => [...prev.slice(0, -1), replyMsg]);
+      if (res.lyrics) {
+        setLocalStory((prev) => (prev ? { ...prev, lyrics: res.lyrics as string } : prev));
+      }
     } catch (err) {
       const errorMsg: ConversationMessage = {
         id: nanoid(),
         role: "system",
         content: `Something went wrong: ${(err as Error).message}`,
       };
-      setMessages((prev) => [...prev.slice(0, -1), errorMsg]);
+      setOptimisticMessages((prev) => [...prev.slice(0, -1), errorMsg]);
     } finally {
+      // Once messages are refreshed from query, clear our optimistics, except if we errored
+      setOptimisticMessages([]);
       setSending(false);
     }
   }
 
   // Chip click: single-select sends immediately; multi-select toggles selection
-  function handleChipClick(chip: ChipSuggestion, msg: ConversationMessage) {
+  function handleChipClick(chip: { id: string; label: string }, msg: ConversationMessage) {
     if (msg.multiSelect) {
       setSelectedChips((prev) => {
         const next = new Set(prev);
@@ -325,12 +218,7 @@ export function StoryWorkshop({ worldId, storyId }: StoryWorkshopProps) {
   const characters = charsQ.data;
   const locations = locsQ.data;
 
-  const inputPlaceholder =
-    phase === "foundation"
-      ? "Describe the story, or answer the question above…"
-      : phase === "lyrics"
-      ? "Pick a length from the chips, or type e.g. ‘60 seconds’…"
-      : "Tell me what to change, or say “looks good”…";
+  const inputPlaceholder = "Chat with the assistant to build your story and generate a song...";
 
   return (
     <div className="space-y-5">
@@ -366,15 +254,15 @@ export function StoryWorkshop({ worldId, storyId }: StoryWorkshopProps) {
             <span className="font-mono text-[10px] uppercase tracking-widest text-[var(--color-muted)]">
               Story Workshop
             </span>
-            <PhaseIndicator phase={phase} />
           </div>
 
           {/* Thread — flex-1 with min-h-0 so it can shrink and scroll */}
           <div className="flex-1 min-h-0 overflow-y-auto">
             <ConversationThread
-              messages={messages}
-              onChipClick={handleChipClick}
+              messages={allMessages}
               selectedChips={selectedChips}
+              onChipClick={handleChipClick}
+              onSendSelectedChips={sendSelectedChips}
             />
           </div>
 
@@ -421,20 +309,4 @@ export function StoryWorkshop({ worldId, storyId }: StoryWorkshopProps) {
   );
 }
 
-function PhaseIndicator({ phase }: { phase: ConversationPhase }) {
-  const labels: Record<ConversationPhase, string> = {
-    foundation: "Building story",
-    lyrics: "Generating lyrics",
-    refine: "Refining",
-  };
-  const colors: Record<ConversationPhase, string> = {
-    foundation: "text-[var(--color-muted)]",
-    lyrics: "text-[var(--color-accent)]",
-    refine: "text-[var(--color-fg)]",
-  };
-  return (
-    <span className={`font-mono text-[9px] uppercase tracking-widest ${colors[phase]}`}>
-      {labels[phase]}
-    </span>
-  );
-}
+

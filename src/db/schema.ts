@@ -268,6 +268,26 @@ export const storyLyricsVersions = pgTable(
   ],
 );
 
+export const storyMessages = pgTable(
+  "story_messages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    storyId: uuid("story_id")
+      .notNull()
+      .references(() => stories.id, { onDelete: "cascade" }),
+    role: text("role", { enum: ["system", "user", "assistant", "tool"] }).notNull(),
+    content: text("content"),
+    toolCalls: jsonb("tool_calls"), // [{ id, type, function: { name, arguments } }]
+    toolCallId: text("tool_call_id"), // if role is tool
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    index("story_messages_story_idx").on(t.storyId, t.createdAt.asc()),
+  ],
+);
+
 export type World = typeof worlds.$inferSelect;
 export type NewWorld = typeof worlds.$inferInsert;
 export type Character = typeof characters.$inferSelect;
@@ -280,3 +300,4 @@ export type SongClip = typeof songClips.$inferSelect;
 export type Video = typeof videos.$inferSelect;
 export type AiCall = typeof aiCalls.$inferSelect;
 export type StoryLyricsVersion = typeof storyLyricsVersions.$inferSelect;
+export type StoryMessage = typeof storyMessages.$inferSelect;

@@ -1,12 +1,12 @@
 import { eq, and } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db/client";
-import { stories, worlds, settings as settingsTable } from "@/db/schema";
-import { generateLyrics, GenerationError } from "@/lib/ai/songScript";
-import { OpenRouterError } from "@/lib/ai/openrouter";
+import { stories, worlds, settings as settingsTable, storyMessages, characters, locations } from "@/db/schema";
+import { generateLyrics } from "@/lib/ai/songScript";
+import { generateStorySong } from "@/lib/ai/song";
+import { callOpenRouter, OpenRouterError, type ChatMessage, type Tool } from "@/lib/ai/openrouter";
+import { getModelForTask } from "@/lib/ai/tasks";
 import { jsonError } from "@/lib/server";
-import { STORY_LENGTHS } from "@/lib/validation";
-import type { DevelopResponse, ConversationPhase } from "@/components/story/types";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -15,15 +15,36 @@ type Ctx = { params: Promise<{ worldId: string; storyId: string }> };
 
 const developSchema = z.object({
   message: z.string().trim().min(1),
-  phase: z.enum(["foundation", "lyrics", "refine"]),
-  currentState: z.object({
-    characterIds: z.array(z.string().uuid()).default([]),
-    locationIds: z.array(z.string().uuid()).default([]),
-    lengthSeconds: z.number().int().default(60),
-    description: z.string().default(""),
-    lyrics: z.string().default(""),
-  }),
 });
+
+const TOOLS: Tool[] = [
+
+  {
+    type: "function",
+    function: {
+      name: "generate_lyrics",
+      description: "Generate or revise the lyrics for the song based on the current story context and user instructions. Use this when the user asks to write, edit, or adjust lyrics.",
+      parameters: {
+        type: "object",
+        properties: {
+          instructions: { type: "string", description: "Explicit instructions for the lyrics generation/revision." },
+        },
+        required: ["instructions"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "generate_mp3",
+      description: "Trigger the AI to compose and generate the final MP3 audio for the song. Use this when the user says the lyrics look good and they are ready to hear the song.",
+      parameters: {
+        type: "object",
+        properties: {},
+      },
+    },
+  },
+];
 
 export async function POST(req: Request, { params }: Ctx) {
   const { worldId, storyId } = await params;
@@ -33,9 +54,9 @@ export async function POST(req: Request, { params }: Ctx) {
     return jsonError(400, "Invalid input", parsed.error.flatten());
   }
 
-  const { message, phase, currentState } = parsed.data;
+  const { message } = parsed.data;
 
-  // Load story + world for context
+  // Context loading
   const [story] = await db
     .select()
     .from(stories)
@@ -45,131 +66,158 @@ export async function POST(req: Request, { params }: Ctx) {
   const [world] = await db.select().from(worlds).where(eq(worlds.id, worldId));
   if (!world) return jsonError(404, "World not found");
 
-  // Check API key availability for AI calls
   const [config] = await db.select().from(settingsTable).limit(1);
-  const apiKeyConfigured = Boolean(config?.openrouterApiKey?.trim());
-
-  // ─── Foundation phase ─────────────────────────────────────────────────────
-  // Parse structured data from user's free-text message.
-  // We don't make an AI call here — we use deterministic parsing + stored context.
-  if (phase === "foundation") {
-    return handleFoundation({ message, currentState, story, world, apiKeyConfigured });
-  }
-
-  // ─── Lyrics phase ─────────────────────────────────────────────────────────
-  // User is selecting a length and requesting a first lyrics draft.
-  if (phase === "lyrics") {
-    if (!apiKeyConfigured) {
-      return jsonError(400, "OpenRouter API key is not configured. Add one in settings.");
-    }
-    const parsedLength = parseInt(message.replace(/[^0-9]/g, ""), 10);
-    const lengthSeconds = STORY_LENGTHS.includes(parsedLength)
-      ? parsedLength
-      : currentState.lengthSeconds;
-
-    try {
-      const result = await generateLyrics({ worldId, storyId, lengthSeconds });
-      const response: DevelopResponse = {
-        reply:
-          `Here's a first draft for ${lengthSeconds}s. Read through it — then tell me anything you'd like to change, or just say "looks good" to move on.`,
-        lyrics: result.lyrics,
-        storyUpdates: { lengthSeconds },
-        nextPhase: "refine",
-      };
-      return Response.json(response, { status: 200 });
-    } catch (err) {
-      return handleAiError(err);
-    }
-  }
-
-  // ─── Refine phase ─────────────────────────────────────────────────────────
-  // Free-form chat: each message is sent as instructions to the lyrics revision AI.
-  if (!apiKeyConfigured) {
+  const apiKey = config?.openrouterApiKey?.trim();
+  if (!apiKey) {
     return jsonError(400, "OpenRouter API key is not configured. Add one in settings.");
   }
 
-  // Detect "no more changes" intent — skip AI call, respond encouragingly
-  const donePatterns = /^(looks? good|done|perfect|great|that'?s? it|generate( the)? song|ready)/i;
-  if (donePatterns.test(message.trim())) {
-    const response: DevelopResponse = {
-      reply:
-        "Great! Your lyrics are locked in. Use the Songs panel below to generate the audio — or keep refining anytime.",
-      nextPhase: "refine",
-    };
-    return Response.json(response, { status: 200 });
+  // Insert User Message
+  await db.insert(storyMessages).values({
+    storyId,
+    role: "user",
+    content: message,
+  });
+
+  // Fetch History
+  const history = await db
+    .select()
+    .from(storyMessages)
+    .where(eq(storyMessages.storyId, storyId))
+    .orderBy(storyMessages.createdAt);
+
+  const systemPrompt = [
+    `You are an expert songwriter and creative partner. You are helping the user write a song in the world of "${world.name}".`,
+    `World style: ${world.artStyle}`,
+    `Story name: ${story.name}`,
+    `Story description (DO NOT change this, just use it for inspiration): ${story.description}`,
+    `Target length: ${story.lengthSeconds}s`,
+    `Current lyrics length: ${story.lyrics?.length || 0} chars.`,
+    `Your job is to have a conversation with the user to brainstorm ideas, write and revise lyrics, and eventually generate an MP3.`,
+    `If the user asks to generate or revise lyrics, call 'generate_lyrics'.`,
+    `If the user says the lyrics are good and wants to hear the song, call 'generate_mp3'.`,
+    `Be conversational, creative, and lean into your expertise as a professional songwriter.`
+  ].join("\n");
+
+  const chatMessages: ChatMessage[] = [
+    { role: "system", content: systemPrompt },
+  ];
+
+  for (const msg of history) {
+    if (msg.role === "user" || msg.role === "system") {
+      chatMessages.push({ role: msg.role, content: msg.content || "" });
+    } else if (msg.role === "assistant") {
+      chatMessages.push({
+        role: "assistant",
+        content: msg.content || null,
+        tool_calls: (msg.toolCalls as any) || undefined,
+      });
+    } else if (msg.role === "tool") {
+      chatMessages.push({
+        role: "tool",
+        content: msg.content || "",
+        tool_call_id: msg.toolCallId || "",
+      });
+    }
   }
 
   try {
-    const result = await generateLyrics({
-      worldId,
-      storyId,
-      lengthSeconds: currentState.lengthSeconds,
-      instructions: message,
+    let result = await callOpenRouter({
+      apiKey,
+      model: getModelForTask("chat", config?.taskModels ?? {}),
+      messages: chatMessages,
+      tools: TOOLS,
+      toolChoice: "auto",
     });
-    const response: DevelopResponse = {
-      reply: "Updated. Take a look — anything else you'd like to adjust?",
-      lyrics: result.lyrics,
-      nextPhase: "refine",
-    };
-    return Response.json(response, { status: 200 });
+
+    // Save assistant response
+    await db.insert(storyMessages).values({
+      storyId,
+      role: "assistant",
+      content: result.text || null,
+      toolCalls: result.tool_calls || null,
+    });
+
+    let finalReply = result.text;
+    let anyToolCalled = false;
+    let newLyrics: string | undefined;
+
+    // Execute tools if any
+    if (result.tool_calls && result.tool_calls.length > 0) {
+      anyToolCalled = true;
+      chatMessages.push({
+        role: "assistant",
+        content: result.text || null,
+        tool_calls: result.tool_calls,
+      });
+
+      for (const call of result.tool_calls) {
+        const args = JSON.parse(call.function.arguments || "{}");
+        let toolResult = "";
+
+        if (call.function.name === "generate_lyrics") {
+          const res = await generateLyrics({
+            worldId,
+            storyId,
+            lengthSeconds: story.lengthSeconds,
+            instructions: args.instructions,
+          });
+          await db.update(stories).set({ lyrics: res.lyrics }).where(eq(stories.id, storyId));
+          newLyrics = res.lyrics;
+          toolResult = `Lyrics generated successfully:\n\n${res.lyrics}`;
+        } else if (call.function.name === "generate_mp3") {
+          await generateStorySong({
+            worldId,
+            storyId,
+            lengthSeconds: story.lengthSeconds,
+          });
+          toolResult = "MP3 generated successfully and added to the Songs panel.";
+        } else {
+          toolResult = "Unknown tool.";
+        }
+
+        await db.insert(storyMessages).values({
+          storyId,
+          role: "tool",
+          content: toolResult,
+          toolCallId: call.id,
+        });
+
+        chatMessages.push({
+          role: "tool",
+          content: toolResult,
+          tool_call_id: call.id,
+        });
+      }
+
+      // Do a follow-up call to summarize the tool execution
+      result = await callOpenRouter({
+        apiKey,
+        model: getModelForTask("chat", config?.taskModels ?? {}),
+        messages: chatMessages,
+        tools: TOOLS,
+        toolChoice: "auto",
+      });
+
+      await db.insert(storyMessages).values({
+        storyId,
+        role: "assistant",
+        content: result.text || null,
+        toolCalls: result.tool_calls || null,
+      });
+
+      finalReply = result.text;
+    }
+
+    return Response.json(
+      { reply: finalReply || "Done.", toolsExecuted: anyToolCalled, lyrics: newLyrics },
+      { status: 200 }
+    );
   } catch (err) {
-    return handleAiError(err);
+    if (err instanceof OpenRouterError) {
+      return jsonError(502, err.message, { providerStatus: err.status });
+    }
+    console.error("develop endpoint error", err);
+    return jsonError(500, err instanceof Error ? err.message : "Generation failed");
   }
-}
-
-// ─── Foundation handler (no AI call) ─────────────────────────────────────────
-function handleFoundation(args: {
-  message: string;
-  currentState: z.infer<typeof developSchema>["currentState"];
-  story: { name: string; description: string };
-  world: { name: string; artStyle: string };
-  apiKeyConfigured: boolean;
-}): Response {
-  const { message, currentState, story, world, apiKeyConfigured } = args;
-  const trimmed = message.trim();
-
-  // Determine what's still missing to build a complete brief.
-  const hasDescription = currentState.description.trim().length > 10;
-  const hasCharacters = currentState.characterIds.length > 0;
-
-  // If the user answered a mood/theme question — merge into description.
-  if (!hasDescription) {
-    const newDesc = trimmed;
-    const response: DevelopResponse = {
-      reply: hasCharacters
-        ? `Got it — "${newDesc.slice(0, 80)}${newDesc.length > 80 ? "…" : ""}". Now, what length would you like for the song?`
-        : `Got it. I've noted the story direction. When you're ready, pick a song length to generate your first lyrics draft.`,
-      storyUpdates: {
-        description: newDesc,
-      },
-      nextPhase: hasCharacters ? "lyrics" : "foundation",
-      chips: hasCharacters
-        ? STORY_LENGTHS.map((s) => ({ id: String(s), label: `${s}s` }))
-        : [],
-    };
-    return Response.json(response, { status: 200 });
-  }
-
-  // Story has enough context — move to lyrics phase.
-  const response: DevelopResponse = {
-    reply: apiKeyConfigured
-      ? `Thanks! I have everything I need about "${story.name}" in the world of "${world.name}". What length do you want the song to be?`
-      : `Thanks! When you've added an OpenRouter API key in Settings, I'll be able to generate lyrics for you.`,
-    nextPhase: "lyrics",
-    chips: apiKeyConfigured
-      ? STORY_LENGTHS.map((s) => ({ id: String(s), label: `${s}s` }))
-      : [],
-  };
-  return Response.json(response, { status: 200 });
-}
-
-function handleAiError(err: unknown): Response {
-  if (err instanceof GenerationError) {
-    return jsonError(err.status, err.message, err.details);
-  }
-  if (err instanceof OpenRouterError) {
-    return jsonError(502, err.message, { providerStatus: err.status });
-  }
-  console.error("develop endpoint error", err);
-  return jsonError(500, err instanceof Error ? err.message : "Generation failed");
 }

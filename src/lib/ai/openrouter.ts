@@ -9,10 +9,26 @@ export type ChatAudioPart = {
 };
 export type ChatPart = ChatTextPart | ChatImagePart | ChatAudioPart;
 
+export type ToolCall = {
+  id: string;
+  type: "function";
+  function: { name: string; arguments: string };
+};
+
 export type ChatMessage =
   | { role: "system"; content: string }
   | { role: "user"; content: ChatPart[] | string }
-  | { role: "assistant"; content: string };
+  | { role: "assistant"; content: string | null; tool_calls?: ToolCall[] }
+  | { role: "tool"; content: string; tool_call_id: string };
+
+export type Tool = {
+  type: "function";
+  function: {
+    name: string;
+    description: string;
+    parameters: Record<string, unknown>;
+  };
+};
 
 export type OpenRouterUsage = {
   promptTokens: number | null;
@@ -24,6 +40,7 @@ export type OpenRouterUsage = {
 export type OpenRouterResult = {
   text: string;
   images: string[];
+  tool_calls?: ToolCall[];
   usage: OpenRouterUsage;
 };
 
@@ -64,6 +81,8 @@ export async function callOpenRouter(args: {
   maxTokens?: number;
   modalities?: string[];
   imageConfig?: Record<string, unknown>;
+  tools?: Tool[];
+  toolChoice?: "auto" | "none" | { type: "function"; function: { name: string } };
   signal?: AbortSignal;
 }): Promise<OpenRouterResult> {
   const res = await fetch(ENDPOINT, {
@@ -80,6 +99,8 @@ export async function callOpenRouter(args: {
       max_tokens: args.maxTokens,
       modalities: args.modalities,
       image_config: args.imageConfig,
+      tools: args.tools,
+      tool_choice: args.toolChoice,
       usage: { include: true },
     }),
     signal: args.signal,
@@ -107,15 +128,17 @@ export async function callOpenRouter(args: {
 
   const text = extractText(data);
   const images = extractImages(data);
-  if (!text && images.length === 0) {
+  const tool_calls = (data as any)?.choices?.[0]?.message?.tool_calls;
+
+  if (!text && images.length === 0 && (!tool_calls || tool_calls.length === 0)) {
     throw new OpenRouterError(
-      "OpenRouter response missing both text and image content",
+      "OpenRouter response missing text, image, and tool_calls",
       res.status,
       raw,
     );
   }
 
-  return { text: text || "", images, usage: extractUsage(data) };
+  return { text: text || "", images, tool_calls, usage: extractUsage(data) };
 }
 
 export async function transcribeAudio(args: {

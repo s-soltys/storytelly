@@ -244,20 +244,14 @@ async function buildSongMessages(ctx: SongContext): Promise<ChatMessage[]> {
     {
       type: "text",
       text: [
+        "--- The following world, story, character, and location details are SUPPORTING background context only. ---",
+        "",
         `# WORLD: ${ctx.world.name}`,
         `Visual/music style: ${ctx.world.artStyle}`,
         ctx.world.description,
         "",
-        `# STORY: ${ctx.story.name}`,
-        `Required duration: ${ctx.story.lengthSeconds} seconds (${durationMmSs}) — this is a hard requirement.`,
+        `# STORY BRIEF: ${ctx.story.name}`,
         ctx.story.description,
-        "",
-        "# SONG TIMELINE",
-        `Total length: ${durationMmSs}`,
-        buildSongTimeline(ctx.story.lengthSeconds),
-        "",
-        "# LYRICS",
-        ctx.story.lyrics?.trim() || "No fixed lyrics. Compose fitting original lyrics that fill the full timeline above.",
       ].join("\n"),
     },
   ];
@@ -274,14 +268,6 @@ async function buildSongMessages(ctx: SongContext): Promise<ChatMessage[]> {
         ]),
       ].join("\n"),
     });
-    for (const character of ctx.characters) {
-      for (const image of character.images) {
-        const url = await imageToDataUrl(image);
-        if (!url) continue;
-        parts.push({ type: "text", text: `Reference image for ${character.name}:` });
-        parts.push({ type: "image_url", image_url: { url } });
-      }
-    }
   }
 
   if (ctx.locations.length) {
@@ -296,15 +282,21 @@ async function buildSongMessages(ctx: SongContext): Promise<ChatMessage[]> {
         ]),
       ].join("\n"),
     });
-    for (const location of ctx.locations) {
-      for (const image of location.images) {
-        const url = await imageToDataUrl(image);
-        if (!url) continue;
-        parts.push({ type: "text", text: `Reference image for ${location.name}:` });
-        parts.push({ type: "image_url", image_url: { url } });
-      }
-    }
   }
+
+  parts.push({
+    type: "text",
+    text: [
+      "--- Your primary focus must be the song timeline and the lyrics. ---",
+      "",
+      "# SONG TIMELINE (primary focus)",
+      `Required duration: ${ctx.story.lengthSeconds} seconds (${durationMmSs}) — this is a hard requirement.`,
+      buildSongTimeline(ctx.story.lengthSeconds),
+      "",
+      "# LYRICS (primary focus)",
+      ctx.story.lyrics?.trim() || "No fixed lyrics. Compose fitting original lyrics that fill the full timeline above.",
+    ].join("\n"),
+  });
 
   parts.push({
     type: "text",

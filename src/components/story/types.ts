@@ -1,23 +1,21 @@
 // Shared types for the conversational story workshop.
 
-export type ConversationPhase =
-  | "foundation" // guided Q&A building story context
-  | "lyrics"     // asking for length → generating first lyrics draft
-  | "refine";    // open-ended iterative refinement
+export type MessageRole = "system" | "user" | "assistant" | "tool";
 
-export type ChipSuggestion = {
+export type ToolCall = {
   id: string;
-  label: string;
+  type: "function";
+  function: { name: string; arguments: string };
 };
-
-export type MessageRole = "system" | "user";
 
 export type ConversationMessage = {
   id: string;
   role: MessageRole;
-  content: string;
+  content: string | null;
+  toolCalls?: ToolCall[];
+  toolCallId?: string;
   /** Suggestion chips rendered below a system question */
-  chips?: ChipSuggestion[];
+  chips?: { id: string; label: string }[];
   /** Whether the chips are multi-selectable */
   multiSelect?: boolean;
   /** Whether this message is a loading/thinking placeholder */
@@ -26,32 +24,13 @@ export type ConversationMessage = {
 
 export type DevelopRequest = {
   message: string;
-  phase: ConversationPhase;
-  /** Current story state so the server can apply structural updates */
-  currentState: {
-    characterIds: string[];
-    locationIds: string[];
-    lengthSeconds: number;
-    description: string;
-    lyrics: string;
-  };
 };
 
 export type DevelopResponse = {
   /** The AI's conversational reply */
   reply: string;
-  /** Updated lyrics if the phase produced/revised lyrics */
+  /** True if the AI executed any tools (so the client can refresh data) */
+  toolsExecuted?: boolean;
+  /** Newly generated lyrics, if any */
   lyrics?: string;
-  /** Story field updates to apply & autosave */
-  storyUpdates?: {
-    description?: string;
-    characterIds?: string[];
-    locationIds?: string[];
-    lengthSeconds?: number;
-  };
-  /** The phase the conversation has progressed to */
-  nextPhase: ConversationPhase;
-  /** Suggestion chips to show with the reply */
-  chips?: ChipSuggestion[];
-  multiSelect?: boolean;
 };
