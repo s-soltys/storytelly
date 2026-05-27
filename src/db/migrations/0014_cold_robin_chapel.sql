@@ -1,0 +1,1 @@
+ALTER TABLE "stories" ADD COLUMN "selected_song_id" uuid;

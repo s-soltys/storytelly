@@ -38,6 +38,7 @@ export const storyCreateSchema = z.object({
     })
     .default(60),
   lyrics: z.string().trim().default(""),
+  selectedSongId: z.union([z.string().uuid(), z.null()]).optional(),
 });
 
 export const storyUpdateSchema = storyCreateSchema.partial();

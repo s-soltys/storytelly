@@ -2,8 +2,8 @@ export const TASK_DEFAULTS = {
   chat: "google/gemini-3.1-flash-lite",
   lyrics: "google/gemini-3-flash-preview",
   song: "google/lyria-3-pro-preview",
-  analyze_song: "openai/gpt-4o-audio-preview",
-  transcription: "openai/gpt-4o-audio-preview",
+  analyze_song: "google/gemini-2.0-flash-001",
+  transcription: "google/gemini-2.0-flash-001",
   generate_image: "google/gemini-2.5-flash-image",
   generate_video: "google/veo-3.1-lite",
   vision: "google/gemini-2.0-flash-001",
@@ -37,7 +37,7 @@ const VIDEO_MODEL_CONFIGS: Array<{
   },
   {
     match: /^google\/veo-3\.1(?:-lite)?(?:$|[:/])/,
-    config: { durations: [5, 8], defaultDuration: 5, resolution: "720p", aspectRatio: "16:9" },
+    config: { durations: [4, 6, 8], defaultDuration: 6, resolution: "720p", aspectRatio: "16:9" },
   },
 ];
 
@@ -60,11 +60,9 @@ export function chooseVideoDuration(
   targetSeconds: number,
 ): number {
   const config = getVideoModelConfig(model);
-  return config.durations.reduce((best, duration) => {
-    const bestDistance = Math.abs(best - targetSeconds);
-    const nextDistance = Math.abs(duration - targetSeconds);
-    if (nextDistance < bestDistance) return duration;
-    if (nextDistance === bestDistance && duration < best) return duration;
-    return best;
-  }, config.defaultDuration);
+  const sorted = [...config.durations].sort((a, b) => a - b);
+  for (const duration of sorted) {
+    if (duration >= targetSeconds) return duration;
+  }
+  return sorted[sorted.length - 1] ?? config.defaultDuration;
 }

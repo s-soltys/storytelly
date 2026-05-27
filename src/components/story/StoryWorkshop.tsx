@@ -12,12 +12,13 @@ import {
   type LocationDto,
   type StoryDto,
   type StoryLyricsVersionDto,
+  type StorySongDto,
 } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { ConversationThread } from "./ConversationThread";
 import { ChatInput } from "./ChatInput";
 import { ArtifactPanel } from "./ArtifactPanel";
-import type { ConversationMessage, DevelopRequest, DevelopResponse } from "./types";
+import type { ConversationMessage, DevelopRequest, DevelopResponse, ExecuteToolRequest } from "./types";
 // ─── Main Workshop ─────────────────────────────────────────────────────────
 
 interface StoryWorkshopProps {
@@ -57,6 +58,11 @@ export function StoryWorkshop({ worldId, storyId }: StoryWorkshopProps) {
       api.get<ConversationMessage[]>(
         `/api/worlds/${worldId}/stories/${storyId}/messages`,
       ),
+  });
+  const songsQ = useQuery({
+    queryKey: ["story-songs", storyId],
+    queryFn: () =>
+      api.get<StorySongDto[]>(`/api/worlds/${worldId}/stories/${storyId}/songs`),
   });
 
   // ── Local story state (mirrors DB, updated optimistically) ───────────────
@@ -167,6 +173,49 @@ export function StoryWorkshop({ worldId, storyId }: StoryWorkshopProps) {
     }
   }
 
+  async function executeTool(toolCallId: string, approved: boolean) {
+    if (!localStory) return;
+    
+    // Add optimistic loading indicator for tool execution
+    const loadingMsg: ConversationMessage = {
+      id: nanoid(),
+      role: "system",
+      content: "",
+      loading: true,
+    };
+    setOptimisticMessages((prev) => [...prev, loadingMsg]);
+    setSending(true);
+
+    try {
+      const body: ExecuteToolRequest = { toolCallId, approved };
+      const res = await api.post<DevelopResponse>(
+        `/api/worlds/${worldId}/stories/${storyId}/develop/execute`,
+        body,
+      );
+
+      await qc.invalidateQueries({ queryKey: ["story-messages", storyId] });
+      if (res.toolsExecuted) {
+        await qc.invalidateQueries({ queryKey: ["story", storyId] });
+        await qc.invalidateQueries({ queryKey: ["story-lyrics-versions", storyId] });
+        await qc.invalidateQueries({ queryKey: ["stories", worldId] });
+      }
+
+      if (res.lyrics) {
+        setLocalStory((prev) => (prev ? { ...prev, lyrics: res.lyrics as string } : prev));
+      }
+    } catch (err) {
+      const errorMsg: ConversationMessage = {
+        id: nanoid(),
+        role: "system",
+        content: `Error executing tool: ${(err as Error).message}`,
+      };
+      setOptimisticMessages((prev) => [...prev.slice(0, -1), errorMsg]);
+    } finally {
+      setOptimisticMessages([]);
+      setSending(false);
+    }
+  }
+
   // Chip click: single-select sends immediately; multi-select toggles selection
   function handleChipClick(chip: { id: string; label: string }, msg: ConversationMessage) {
     if (msg.multiSelect) {
@@ -210,13 +259,14 @@ export function StoryWorkshop({ worldId, storyId }: StoryWorkshopProps) {
   }
 
   // ── Loading state ──────────────────────────────────────────────────────────
-  if (!localStory || !charsQ.data || !locsQ.data) {
+  if (!localStory || !charsQ.data || !locsQ.data || !songsQ.data) {
     return <p className="text-[var(--color-muted)]">Loading…</p>;
   }
 
   const story = localStory;
   const characters = charsQ.data;
   const locations = locsQ.data;
+  const songs = songsQ.data;
 
   const inputPlaceholder = "Chat with the assistant to build your story and generate a song...";
 
@@ -263,6 +313,7 @@ export function StoryWorkshop({ worldId, storyId }: StoryWorkshopProps) {
               selectedChips={selectedChips}
               onChipClick={handleChipClick}
               onSendSelectedChips={sendSelectedChips}
+              onExecuteTool={executeTool}
             />
           </div>
 
@@ -296,11 +347,13 @@ export function StoryWorkshop({ worldId, storyId }: StoryWorkshopProps) {
             locationIds: story.locationIds ?? [],
             lengthSeconds: story.lengthSeconds,
             lyrics: story.lyrics ?? "",
+            selectedSongId: story.selectedSongId,
           }}
           characters={characters}
           locations={locations}
           versions={versionsQ.data ?? []}
           moodImages={story.moodImages ?? []}
+          songs={songs}
           onStoryUpdate={updateLocalStory}
           saveState={saveState}
         />

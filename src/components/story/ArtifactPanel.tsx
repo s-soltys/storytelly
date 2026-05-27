@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/input";
 import { ImageUploader } from "@/components/ImageUploader";
 import { StorySongsPanel } from "@/components/StorySongsPanel";
-import type { CharacterDto, LocationDto, StoryLyricsVersionDto } from "@/lib/api";
+import type { CharacterDto, LocationDto, StoryLyricsVersionDto, StorySongDto } from "@/lib/api";
 import { STORY_LENGTHS } from "@/lib/validation";
 
 const quietField =
@@ -26,10 +26,12 @@ interface ArtifactPanelProps {
     locationIds: string[];
     lengthSeconds: number;
     lyrics: string;
+    selectedSongId?: string | null;
   };
   characters: CharacterDto[];
   locations: LocationDto[];
   versions: StoryLyricsVersionDto[];
+  songs: StorySongDto[];
   moodImages: { id: string; url: string; s3Key: string; position: number }[];
   onStoryUpdate: (updates: {
     description?: string;
@@ -37,6 +39,7 @@ interface ArtifactPanelProps {
     locationIds?: string[];
     lengthSeconds?: number;
     lyrics?: string;
+    selectedSongId?: string;
   }) => void;
   saveState: "idle" | "saving" | "saved" | "error" | "invalid";
 }
@@ -48,6 +51,7 @@ export function ArtifactPanel({
   characters,
   locations,
   versions,
+  songs,
   moodImages,
 
   onStoryUpdate,
@@ -57,8 +61,30 @@ export function ArtifactPanel({
   const selectedChars = characters.filter((c) => story.characterIds.includes(c.id));
   const selectedLocs = locations.filter((l) => story.locationIds.includes(l.id));
 
+  // Determine the featured song: either the selected one, or the newest one (songs are sorted newest-first by DB)
+  const nonArchivedSongs = songs.filter(s => !s.archived);
+  const featuredSong = story.selectedSongId 
+    ? nonArchivedSongs.find(s => s.id === story.selectedSongId) || nonArchivedSongs[0]
+    : nonArchivedSongs[0];
+
   return (
     <div className="flex flex-col gap-4 h-[calc(100vh-8rem)]">
+      {featuredSong && (
+        <div className="rounded-[var(--radius-control)] border border-[var(--color-border)]/70 bg-[var(--color-surface)]/45 p-3 flex-shrink-0 flex flex-col gap-2 relative overflow-hidden">
+          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-[var(--color-accent)]/20 via-[var(--color-accent)] to-[var(--color-accent)]/20" />
+          <div className="flex items-center justify-between">
+            <span className="font-mono text-[10px] uppercase tracking-widest text-[var(--color-accent)] font-semibold flex items-center gap-1.5">
+              ⭐ Featured Song
+            </span>
+            <span className="text-[10px] text-[var(--color-muted)] font-mono uppercase">
+              {featuredSong.source === "generated" ? "Generated" : "Uploaded"}
+            </span>
+          </div>
+          <p className="text-sm font-medium truncate">{featuredSong.name}</p>
+          <audio controls src={featuredSong.url} className="w-full h-8 mt-1" />
+        </div>
+      )}
+
       {/* Tabs Header */}
       <div className="flex items-center gap-4 border-b border-[var(--color-border)]/50 pb-2 flex-shrink-0">
         <button
@@ -242,7 +268,13 @@ export function ArtifactPanel({
         {activeTab === "songs" && (
           <>
             {/* Songs Panel */}
-            <StorySongsPanel worldId={worldId} storyId={storyId} />
+            <StorySongsPanel
+              worldId={worldId}
+              storyId={storyId}
+              songs={songs}
+              selectedSongId={story.selectedSongId}
+              onStoryUpdate={onStoryUpdate}
+            />
           </>
         )}
       </div>

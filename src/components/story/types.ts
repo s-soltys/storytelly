@@ -26,6 +26,11 @@ export type DevelopRequest = {
   message: string;
 };
 
+export type ExecuteToolRequest = {
+  toolCallId: string;
+  approved: boolean;
+};
+
 export type DevelopResponse = {
   /** The AI's conversational reply */
   reply: string;

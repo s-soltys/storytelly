@@ -11,19 +11,19 @@ import { Archive, Music, Upload, RotateCw } from "lucide-react";
 export function StorySongsPanel({
   worldId,
   storyId,
+  songs,
+  selectedSongId,
+  onStoryUpdate,
 }: {
   worldId: string;
   storyId: string;
+  songs: StorySongDto[];
+  selectedSongId?: string | null;
+  onStoryUpdate: (updates: { selectedSongId: string }) => void;
 }) {
   const qc = useQueryClient();
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploadName, setUploadName] = useState("");
-
-  const songs = useQuery({
-    queryKey: ["story-songs", storyId],
-    queryFn: () =>
-      api.get<StorySongDto[]>(`/api/worlds/${worldId}/stories/${storyId}/songs`),
-  });
 
   const generateSong = useMutation({
     mutationFn: () =>
@@ -80,7 +80,7 @@ export function StorySongsPanel({
     },
   });
 
-  const items = songs.data ?? [];
+  const items = songs;
 
   return (
     <section className="space-y-2.5 rounded-[var(--radius-control)] border border-[var(--color-border)]/70 bg-[var(--color-surface)]/45 p-3">
@@ -148,9 +148,7 @@ export function StorySongsPanel({
         </p>
       )}
 
-      {songs.isLoading ? (
-        <p className="text-xs text-[var(--color-muted)]">Loading…</p>
-      ) : items.length === 0 && !generateSong.isPending ? (
+      {items.length === 0 && !generateSong.isPending ? (
         <p className="text-xs text-[var(--color-muted)]">
           No songs yet.
         </p>
@@ -172,15 +170,17 @@ export function StorySongsPanel({
             </article>
           )}
           {items.map((song) => (
-            <SongRow
-              key={song.id}
-              song={song}
-              archiving={archive.isPending}
-              onArchive={() => {
-                if (confirm("Archive this song?")) archive.mutate(song.id);
-              }}
-              storyboardHref={`/worlds/${worldId}/stories/${storyId}/songs/${song.id}/storyboard`}
-            />
+              <SongRow
+                key={song.id}
+                song={song}
+                archiving={archive.isPending}
+                onArchive={() => {
+                  if (confirm("Archive this song?")) archive.mutate(song.id);
+                }}
+                storyboardHref={`/worlds/${worldId}/stories/${storyId}/songs/${song.id}/storyboard`}
+                isFavorite={selectedSongId === song.id}
+                onSetFavorite={() => onStoryUpdate({ selectedSongId: song.id })}
+              />
           ))}
         </div>
       )}
@@ -193,11 +193,15 @@ function SongRow({
   archiving,
   onArchive,
   storyboardHref,
+  isFavorite,
+  onSetFavorite,
 }: {
   song: StorySongDto;
   archiving: boolean;
   onArchive: () => void;
   storyboardHref: string;
+  isFavorite: boolean;
+  onSetFavorite: () => void;
 }) {
   return (
     <article
@@ -220,11 +224,22 @@ function SongRow({
         </div>
         <div className="flex gap-2">
           {!song.archived && (
-            <Button asChild size="sm" variant="secondary">
-              <Link href={storyboardHref}>
-                Open storyboard
-              </Link>
-            </Button>
+            <>
+              <Button
+                type="button"
+                size="sm"
+                variant={isFavorite ? "secondary" : "ghost"}
+                className={isFavorite ? "text-[var(--color-accent)] border border-[var(--color-accent)]/30" : ""}
+                onClick={onSetFavorite}
+              >
+                ⭐ {isFavorite ? "Favorite" : "Set Favorite"}
+              </Button>
+              <Button asChild size="sm" variant="secondary">
+                <Link href={storyboardHref}>
+                  Open storyboard
+                </Link>
+              </Button>
+            </>
           )}
           <Button
             type="button"

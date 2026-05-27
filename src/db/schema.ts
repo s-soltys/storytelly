@@ -70,6 +70,7 @@ export const stories = pgTable(
     description: text("description").notNull(),
     lengthSeconds: integer("length_seconds").default(60).notNull(),
     lyrics: text("lyrics").default("").notNull(),
+    selectedSongId: uuid("selected_song_id"),
     ...timestamps,
   },
   (t) => [

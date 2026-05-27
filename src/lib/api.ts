@@ -76,6 +76,7 @@ export type StoryDto = {
   characterIds?: string[];
   locationIds?: string[];
   moodImages?: ImageDto[];
+  selectedSongId?: string | null;
 };
 
 export type StoryLyricsVersionDto = {

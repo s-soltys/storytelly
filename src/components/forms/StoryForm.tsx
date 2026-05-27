@@ -97,6 +97,15 @@ export function StoryForm(props: Mode) {
       ),
   });
 
+  const songs = useQuery({
+    queryKey: ["story-songs", props.kind === "edit" ? props.storyId : null],
+    enabled: props.kind === "edit",
+    queryFn: () =>
+      api.get<import("@/lib/api").StorySongDto[]>(
+        `/api/worlds/${worldId}/stories/${props.kind === "edit" ? props.storyId : ""}/songs`,
+      ),
+  });
+
   const {
     control,
     register,
@@ -615,7 +624,17 @@ export function StoryForm(props: Mode) {
       </div>
 
       {props.kind === "edit" && existing.data && (
-        <StorySongsPanel worldId={worldId} storyId={props.storyId} />
+        <StorySongsPanel
+          worldId={worldId}
+          storyId={props.storyId}
+          songs={songs.data ?? []}
+          selectedSongId={existing.data.selectedSongId}
+          onStoryUpdate={(updates) => {
+            api.patch(`/api/worlds/${worldId}/stories/${props.storyId}`, updates).then(() => {
+              qc.invalidateQueries({ queryKey: ["story", props.storyId] });
+            });
+          }}
+        />
       )}
     </div>
   );
