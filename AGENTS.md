@@ -58,6 +58,7 @@ src/
 - **Structured Data**: Prefer single consolidated JSON objects for complex multi-modal tasks to ensure high reliability across different model tiers.
 - **Elision for Logs**: Always elide large binary data (Base64 images/audio) before saving AI prompts to the database logs.
 - **Artifact Integrity**: Always maintain `task.md` and `walkthrough.md` for any major functional feature.
+- **Run and Maintain Tests**: For any logic, utility, or component modification, verify existing tests pass (`npm run test`) and write corresponding test coverage. Target high coverage for new business rules.
 
 ### Schema changes
 1. Edit `src/db/schema.ts`.
@@ -82,6 +83,12 @@ src/
 - **Modular Workspaces**: For complex, feature-heavy pages, break the UI into granular subcomponents (e.g., separate cards, toolbars, and preview panes). This prevents mega-files and isolates React re-renders.
 - **Concurrent Async State**: When handling asynchronous tasks for lists of items (e.g., batch generating media), track loading/error states in a local dictionary/map keyed by item ID rather than a single global boolean. This avoids locking up the whole page and prevents massive cascading re-renders.
 - **Asset Hierarchy in Exports**: When exporting complex multi-media projects (like ZIP archives with timelines), always prioritize including the highest-fidelity generated assets (e.g., videos over static fallback images).
+
+### Testing Guidelines
+- **Testing Behavior, Not Implementation**: For UI components, use `@testing-library/react` to verify what the user sees and interacts with (e.g., `userEvent.click`), rather than asserting on React internal state.
+- **Colocate Tests**: Place test files directly next to the code they verify (e.g., `button.test.tsx` next to `button.tsx`).
+- **Mocking DB & S3 Dependencies**: When testing pure logic/compilers, mock `@/db/client` and `@/lib/storage` at the top of the test file to prevent connection initialization errors due to missing `DATABASE_URL` or `S3_BUCKET` environment variables.
+- **Autosave / Debounce Testing**: Avoid globally calling `vi.useFakeTimers()` in suites with async fetching libraries (it breaks TanStack Query). Instead, use real sleep delays (`await new Promise((res) => setTimeout(res, 800))`) inside specific tests to let debounce cycles run naturally.
 
 ### Naming rules (business)
 - Character and location `name` is **immutable after creation** and **unique per world**. PATCH zod schemas omit `name` deliberately — keep it that way.
@@ -110,11 +117,13 @@ src/
 | Apply schema | `npm run db:migrate` (or `npm run db:push` in dev) |
 | Generate migration | `npm run db:generate` |
 | Inspect DB | `npm run db:studio` |
+| Run test suite | `npm run test` |
+| Check coverage | `npm run test:coverage` |
 | Type-check | `npm run typecheck` |
 | Lint | `npm run lint` |
 | Production build | `npm run build` |
 
-Verify your change builds before reporting done: `npm run typecheck && npm run build`.
+Verify your change builds and passes tests before reporting done: `npm run typecheck && npm run test && npm run build`.
 
 ## Don't
 
