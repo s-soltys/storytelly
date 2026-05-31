@@ -26,6 +26,19 @@ async function songDto(row: typeof storySongs.$inferSelect) {
   };
 }
 
+export async function GET(_req: Request, { params }: Ctx) {
+  const { worldId, storyId, songId } = await params;
+  if (!(await storyExists(worldId, storyId))) {
+    return jsonError(404, "Story not found");
+  }
+  const [song] = await db
+    .select()
+    .from(storySongs)
+    .where(and(eq(storySongs.id, songId), eq(storySongs.storyId, storyId)));
+  if (!song) return jsonError(404, "Song not found");
+  return Response.json(await songDto(song));
+}
+
 export async function PATCH(req: Request, { params }: Ctx) {
   const { worldId, storyId, songId } = await params;
   if (!(await storyExists(worldId, storyId))) {

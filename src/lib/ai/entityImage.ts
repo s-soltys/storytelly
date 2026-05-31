@@ -46,7 +46,7 @@ async function saveAiVideo(args: {
   return row;
 }
 
-async function saveAiImage(imageUrl: string, ownerKind: ImageOwnerKind, ownerId: string) {
+export async function saveAiImage(imageUrl: string, ownerKind: ImageOwnerKind, ownerId: string) {
   let buffer: Buffer;
   let contentType: string;
 

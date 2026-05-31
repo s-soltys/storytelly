@@ -1,12 +1,13 @@
 "use client";
 
-import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type StorySongDto, type SongSectionDto, type SongClipDto, type VideoDto } from "@/lib/api";
-import { ArrowLeft, Music, Wand2, FileAudio, FileText, LayoutList, Loader2, Check, ChevronDown, ChevronUp, Plus, Trash2, Image as ImageIcon, Video, Download } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { useEffect, useState, useCallback } from "react";
+import { Loader2 } from "lucide-react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import { StoryboardToolbar } from "./StoryboardToolbar";
+import { StoryboardPreview } from "./StoryboardPreview";
+import { SectionCard } from "./SectionCard";
 
 export default function StoryboardPage() {
   const qc = useQueryClient();
@@ -20,19 +21,25 @@ export default function StoryboardPage() {
   const [sections, setSections] = useState<SongSectionDto[]>([]);
   const [isSubtitlesOpen, setIsSubtitlesOpen] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
+  const [clipGenStates, setClipGenStates] = useState<Record<string, { type: "image" | "video"; status: "pending" | "success" | "error"; error?: string }>>({});
+  const [isPollingClips, setIsPollingClips] = useState(false);
 
-  const songs = useQuery({
-    queryKey: ["story-songs", storyId],
+  const songQuery = useQuery({
+    queryKey: ["story-songs", songId],
     queryFn: () =>
-      api.get<StorySongDto[]>(`/api/worlds/${worldId}/stories/${storyId}/songs`),
+      api.get<StorySongDto>(`/api/worlds/${worldId}/stories/${storyId}/songs/${songId}`),
+    staleTime: 30 * 60 * 1000,
+    refetchInterval: 45 * 60 * 1000,
   });
-  const song = songs.data?.find((item) => item.id === songId);
+  const song = songQuery.data;
 
   const clipsQuery = useQuery({
     queryKey: ["story-songs", songId, "clips"],
     queryFn: () =>
       api.get<SongClipDto[]>(`/api/worlds/${worldId}/stories/${storyId}/songs/${songId}/clips`),
     enabled: !!song,
+    staleTime: 30 * 60 * 1000,
+    refetchInterval: isPollingClips ? 5000 : 45 * 60 * 1000,
   });
   const clips = clipsQuery.data || [];
 
@@ -84,59 +91,40 @@ export default function StoryboardPage() {
     },
   });
 
+  const update = useMutation({
+    mutationFn: (body: Partial<StorySongDto>) =>
+      api.patch(`/api/worlds/${worldId}/stories/${storyId}/songs/${songId}`, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["story-songs", songId] });
+      qc.invalidateQueries({ queryKey: ["story-songs", storyId] });
+    },
+  });
+
+  const analyze = useMutation({
+    mutationFn: () =>
+      api.post(`/api/worlds/${worldId}/stories/${storyId}/songs/${songId}/analyze`, {}),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["story-songs", songId] });
+      qc.invalidateQueries({ queryKey: ["story-songs", storyId] });
+      qc.invalidateQueries({ queryKey: ["story-songs", songId, "clips"] });
+    },
+  });
+
+  const transcribe = useMutation({
+    mutationFn: () =>
+      api.post(`/api/worlds/${worldId}/stories/${storyId}/songs/${songId}/transcribe`, {}),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["story-songs", songId] });
+      qc.invalidateQueries({ queryKey: ["story-songs", storyId] });
+    },
+  });
+
   useEffect(() => {
     if (song) {
       setSubtitles(song.subtitles || "");
       setSections(song.sections || []);
     }
   }, [song]);
-
-  const activeSection = sections.find(
-    (s) => currentTime >= s.startSeconds && currentTime < s.endSeconds
-  );
-
-  // Simple SRT parser to find active subtitle
-  const parseSRT = (srt: string) => {
-    const blocks = srt.trim().split(/\n\s*\n/);
-    return blocks.map((block) => {
-      const lines = block.split("\n");
-      if (lines.length < 3) return null;
-      const timeMatch = lines[1].match(/(\d{2}:\d{2}:\d{2},\d{3}) --> (\d{2}:\d{2}:\d{2},\d{3})/);
-      if (!timeMatch) return null;
-
-      const toSeconds = (t: string) => {
-        const [h, m, s] = t.split(":");
-        const [sec, ms] = s.split(",");
-        return parseInt(h) * 3600 + parseInt(m) * 60 + parseInt(sec) + parseInt(ms) / 1000;
-      };
-
-      return {
-        start: toSeconds(timeMatch[1]),
-        end: toSeconds(timeMatch[2]),
-        text: lines.slice(2).join(" "),
-      };
-    }).filter(Boolean) as Array<{ start: number; end: number; text: string }>;
-  };
-
-  const parsedSubtitles = parseSRT(subtitles);
-  const activeSubtitle = parsedSubtitles.find(
-    (s) => currentTime >= s.start && currentTime < s.end
-  );
-
-  const update = useMutation({
-    mutationFn: (body: Partial<StorySongDto>) =>
-      api.patch(`/api/worlds/${worldId}/stories/${storyId}/songs/${songId}`, body),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["story-songs", storyId] });
-    },
-  });
-
-  const debouncedUpdate = useCallback(
-    (body: Partial<StorySongDto>) => {
-      update.mutate(body);
-    },
-    [update]
-  );
 
   useEffect(() => {
     if (!song) return;
@@ -145,436 +133,368 @@ export default function StoryboardPage() {
 
     if (hasSubtitlesChanged || hasSectionsChanged) {
       const timer = setTimeout(() => {
-        debouncedUpdate({ subtitles, sections });
+        update.mutate({ subtitles, sections });
       }, 1000);
       return () => clearTimeout(timer);
     }
-  }, [subtitles, sections, song, debouncedUpdate]);
+  }, [subtitles, sections, song, update.mutate]);
 
-  const analyze = useMutation({
-    mutationFn: () =>
-      api.post(`/api/worlds/${worldId}/stories/${storyId}/songs/${songId}/analyze`, {}),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["story-songs", storyId] });
-    },
-  });
+  useEffect(() => {
+    if (isPollingClips) {
+      const clipsWithoutImages = clips.filter((c) => !c.images || c.images.length === 0);
+      if (clipsWithoutImages.length === 0) {
+        setIsPollingClips(false);
+      }
 
-  const transcribe = useMutation({
-    mutationFn: () =>
-      api.post(`/api/worlds/${worldId}/stories/${storyId}/songs/${songId}/transcribe`, {}),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["story-songs", storyId] });
-    },
-  });
+      setClipGenStates((prev) => {
+        let changed = false;
+        const next = { ...prev };
+        clips.forEach((c) => {
+          const hasImage = c.images && c.images.length > 0;
+          if (hasImage && next[c.id]?.status === "pending") {
+            delete next[c.id];
+            changed = true;
+          }
+        });
+        return changed ? next : prev;
+      });
+    }
+  }, [clips, isPollingClips]);
 
-  const handleAnalyze = () => {
-    if (song?.sections && !confirm("Re-generate analysis? Current sections will be overwritten.")) {
+  const lastTimeRef = useRef(0);
+  const handleTimeUpdate = useCallback((e: React.SyntheticEvent<HTMLAudioElement>) => {
+    const time = e.currentTarget.currentTime;
+    if (Math.abs(time - lastTimeRef.current) > 0.35 || time === 0 || Math.abs(time - lastTimeRef.current) > 1.0) {
+      setCurrentTime(time);
+      lastTimeRef.current = time;
+    }
+  }, []);
+
+  const parseSRT = useCallback((srt: string) => {
+    if (!srt) return [];
+    const blocks = srt.trim().split(/\n\s*\n/);
+    return blocks
+      .map((block) => {
+        const lines = block.split("\n");
+        if (lines.length < 3) return null;
+        const timeMatch = lines[1].match(/(\d{2}:\d{2}:\d{2},\d{3}) --> (\d{2}:\d{2}:\d{2},\d{3})/);
+        if (!timeMatch) return null;
+
+        const toSeconds = (t: string) => {
+          const [h, m, s] = t.split(":");
+          const [sec, ms] = s.split(",");
+          return parseInt(h) * 3600 + parseInt(m) * 60 + parseInt(sec) + parseInt(ms) / 1000;
+        };
+
+        return {
+          start: toSeconds(timeMatch[1]),
+          end: toSeconds(timeMatch[2]),
+          text: lines.slice(2).join(" "),
+        };
+      })
+      .filter(Boolean) as Array<{ start: number; end: number; text: string }>;
+  }, []);
+
+  const parsedSubtitles = useMemo(() => parseSRT(subtitles), [subtitles, parseSRT]);
+  
+  const activeSubtitle = useMemo(() => {
+    return parsedSubtitles.find(
+      (s) => currentTime >= s.start && currentTime < s.end
+    );
+  }, [parsedSubtitles, currentTime]);
+
+  const activeSectionIndex = useMemo(() => {
+    return sections.findIndex(
+      (s) => currentTime >= s.startSeconds && currentTime < s.endSeconds
+    );
+  }, [sections, currentTime]);
+
+  const handleAnalyze = useCallback(() => {
+    if (
+      song?.sections &&
+      !confirm(
+        "Warning: Re-generating the analysis will overwrite your current storyboard sections. This will also delete ALL existing clips, generated images, and videos associated with this song. This action cannot be undone. Are you sure you want to proceed?"
+      )
+    ) {
       return;
     }
     analyze.mutate();
-  };
+  }, [song, analyze]);
 
-  const handleTranscribe = () => {
+  const handleTranscribe = useCallback(() => {
     if (song?.subtitles && !confirm("Re-generate transcription? Current subtitles will be overwritten.")) {
       return;
     }
     transcribe.mutate();
-  };
+  }, [song, transcribe]);
 
-  const updateSection = (index: number, field: keyof SongSectionDto, value: any) => {
-    const next = [...sections];
-    next[index] = { ...next[index], [field]: value };
-    setSections(next);
-  };
+  const handleUpdateSection = useCallback((index: number, field: keyof SongSectionDto, value: any) => {
+    setSections((prev) => {
+      const next = [...prev];
+      next[index] = { ...next[index], [field]: value };
+      return next;
+    });
+  }, []);
 
-  const formatSeconds = (totalSeconds: number) => {
-    const mins = Math.floor(totalSeconds / 60);
-    const secs = Math.floor(totalSeconds % 60);
-    return `${mins}:${secs.toString().padStart(2, "0")}`;
-  };
+  const handleUpdateClipDescription = useCallback((clipId: string, description: string) => {
+    updateClip.mutate({ id: clipId, description });
+  }, [updateClip]);
+
+  const handleDeleteClip = useCallback((clipId: string) => {
+    if (confirm("Delete this clip and its generated videos? Existing image objects are not deleted.")) {
+      deleteClip.mutate(clipId);
+    }
+  }, [deleteClip]);
+
+  const handleAddClip = useCallback((sectionIndex: number) => {
+    createClip.mutate({ sectionIndex, description: "New clip description..." });
+  }, [createClip]);
+
+  const handleGenerateImage = useCallback((clipId: string) => {
+    setClipGenStates((prev) => ({
+      ...prev,
+      [clipId]: { type: "image", status: "pending" },
+    }));
+    generateSingleImage
+      .mutateAsync(clipId)
+      .then(() => {
+        setClipGenStates((prev) => {
+          const next = { ...prev };
+          delete next[clipId];
+          return next;
+        });
+      })
+      .catch((err) => {
+        setClipGenStates((prev) => ({
+          ...prev,
+          [clipId]: { type: "image", status: "error", error: err.message || "Generation failed" },
+        }));
+      });
+  }, [generateSingleImage]);
+
+  const handleGenerateVideo = useCallback((clipId: string) => {
+    setClipGenStates((prev) => ({
+      ...prev,
+      [clipId]: { type: "video", status: "pending" },
+    }));
+    generateVideo
+      .mutateAsync(clipId)
+      .then(() => {
+        setClipGenStates((prev) => {
+          const next = { ...prev };
+          delete next[clipId];
+          return next;
+        });
+      })
+      .catch((err) => {
+        setClipGenStates((prev) => ({
+          ...prev,
+          [clipId]: { type: "video", status: "error", error: err.message || "Generation failed" },
+        }));
+      });
+  }, [generateVideo]);
+
+  const handleGenerateBulkImages = useCallback(() => {
+    if (
+      confirm(
+        "This will generate images for all clips that don't have one yet. It may take a while and incur costs. Continue?"
+      )
+    ) {
+      const clipsWithoutImages = clips.filter((c) => !c.images || c.images.length === 0);
+      setClipGenStates((prev) => {
+        const next = { ...prev };
+        clipsWithoutImages.forEach((c) => {
+          next[c.id] = { type: "image", status: "pending" };
+        });
+        return next;
+      });
+      setIsPollingClips(true);
+
+      generateBulkImages
+        .mutateAsync()
+        .then(() => {
+          // Polling will clear states when they are loaded from API
+        })
+        .catch((err) => {
+          setClipGenStates((prev) => {
+            const next = { ...prev };
+            clipsWithoutImages.forEach((c) => {
+              if (next[c.id]?.status === "pending") {
+                next[c.id] = { type: "image", status: "error", error: err.message || "Bulk generation failed" };
+              }
+            });
+            return next;
+          });
+          setIsPollingClips(false);
+        });
+    }
+  }, [clips, generateBulkImages]);
+
+  const handleExport = useCallback((e: React.MouseEvent<HTMLAnchorElement>) => {
+    const hasMedia = clips.some((c) => (c.images && c.images.length > 0) || (c.videos && c.videos.length > 0));
+    if (!hasMedia) {
+      e.preventDefault();
+      alert("No storyboard media has been generated yet. Please generate images or videos first before exporting.");
+    }
+  }, [clips]);
+
+  const handleMediaError = useCallback(() => {
+    clipsQuery.refetch();
+  }, [clipsQuery]);
+
+  const isSaving = update.isPending;
+  const isTranscribing = transcribe.isPending;
+  const isAnalyzing = analyze.isPending;
+  const isGeneratingBulkImages = generateBulkImages.isPending;
+  const exportUrl = `/api/worlds/${worldId}/stories/${storyId}/songs/${songId}/storyboard/export`;
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-4">
-          <Link
-            href={`/worlds/${worldId}/stories/${storyId}`}
-            className="inline-flex items-center gap-1 text-xs text-[var(--color-muted)] hover:text-[var(--color-fg)]"
-          >
-            <ArrowLeft className="h-4 w-4" /> Back to story
-          </Link>
-          <div className="flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-widest text-[var(--color-muted)]">
-            {update.isPending ? (
-              <>
-                <Loader2 className="h-3 w-3 animate-spin" /> Saving...
-              </>
-            ) : (
-              <>
-                <Check className="h-3 w-3" /> Saved
-              </>
-            )}
-          </div>
+    <div className="space-y-6">
+      {/* Top toolbar and stepper */}
+      <StoryboardToolbar
+        worldId={worldId}
+        storyId={storyId}
+        songId={songId}
+        subtitles={subtitles}
+        sections={sections}
+        clips={clips}
+        isSaving={isSaving}
+        isTranscribing={isTranscribing}
+        isAnalyzing={isAnalyzing}
+        isGeneratingBulkImages={isGeneratingBulkImages}
+        onTranscribe={handleTranscribe}
+        onAnalyze={handleAnalyze}
+        onGenerateBulkImages={handleGenerateBulkImages}
+        onExport={handleExport}
+        exportUrl={exportUrl}
+      />
+
+      {songQuery.isLoading ? (
+        <div className="flex flex-col items-center justify-center py-20 gap-3">
+          <Loader2 className="h-8 w-8 animate-spin text-[var(--color-accent)]" />
+          <p className="text-xs text-[var(--color-muted)] font-mono uppercase tracking-widest">Loading Storyboard...</p>
         </div>
-        <div className="flex items-center gap-2">
-          {song && !song.archived && (
-            <Button size="sm" variant="secondary" asChild>
-              <a
-                href={`/api/worlds/${worldId}/stories/${storyId}/songs/${songId}/storyboard/export`}
-                download
-              >
-                <Download className="h-4 w-4" />
-                Export ZIP
-              </a>
-            </Button>
-          )}
-          {clips.length > 0 && (
-            <Button
-              size="sm"
-              variant="secondary"
-              disabled={generateBulkImages.isPending}
-              onClick={() => {
-                if (confirm("This will generate images for all clips that don't have one yet. It may take a while and incur costs. Continue?")) {
-                  generateBulkImages.mutate();
-                }
-              }}
-            >
-              {generateBulkImages.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
-              ) : (
-                <ImageIcon className="h-4 w-4 mr-2" />
-              )}
-              {generateBulkImages.isPending ? "Generating..." : "Generate Missing Images"}
-            </Button>
-          )}
-          <Button
-            size="sm"
-            variant="secondary"
-            disabled={transcribe.isPending || !song}
-            onClick={handleTranscribe}
-          >
-            <FileAudio className={`h-4 w-4 ${transcribe.isPending ? "animate-spin" : ""}`} />
-            {transcribe.isPending ? "Transcribing..." : song?.subtitles ? "Re-transcribe" : "Transcribe Lyrics"}
-          </Button>
-          <Button
-            size="sm"
-            disabled={analyze.isPending || !song}
-            onClick={handleAnalyze}
-          >
-            <Wand2 className={`h-4 w-4 ${analyze.isPending ? "animate-spin" : ""}`} />
-            {analyze.isPending ? "Analyzing..." : song?.sections ? "Re-analyze Storyboard" : "Analyze Storyboard"}
-          </Button>
-        </div>
-      </div>
-
-      <section className="rounded-[var(--radius-control)] border border-[var(--color-border)]/70 bg-[var(--color-surface)]/45 p-3">
-        <h1 className="mb-3 flex items-center gap-2 font-mono text-sm uppercase tracking-widest">
-          <Music className="h-4 w-4" /> Storyboard
-        </h1>
-        {songs.isLoading ? (
-          <p className="text-xs text-[var(--color-muted)]">Loading song…</p>
-        ) : song && !song.archived ? (
-          <div className="space-y-6">
-            <div className="flex flex-wrap items-start justify-between gap-2">
-              <div>
-                <p className="font-mono text-xs uppercase tracking-widest">
-                  {song.name}
-                </p>
-                <p className="mt-1 text-[11px] uppercase tracking-wider text-[var(--color-muted)]">
-                  {song.source}
-                  {song.lengthSeconds ? ` · ${song.lengthSeconds}s` : ""}
-                </p>
-              </div>
-            </div>
-
-            {/* Interactive Preview */}
-            <div className="relative aspect-video overflow-hidden rounded-[var(--radius-control)] border border-[var(--color-accent)]/30 bg-black/60 shadow-inner flex flex-col justify-center items-center text-center group">
-              {activeSection ? (
-                <div className="px-8 space-y-3 animate-in fade-in zoom-in-95 duration-500">
-                  <div className="inline-block px-3 py-1 rounded-full bg-[var(--color-accent)]/10 border border-[var(--color-accent)]/20 text-[var(--color-accent)] font-mono text-[11px] uppercase tracking-[0.2em] mb-2">
-                    {formatSeconds(activeSection.startSeconds)} — {formatSeconds(activeSection.endSeconds)}
-                  </div>
-                  <p className="text-lg md:text-xl font-medium leading-relaxed max-w-2xl text-[var(--color-fg)]">
-                    {activeSection.description}
-                  </p>
-                  <p className="text-[11px] uppercase tracking-[0.15em] text-[var(--color-muted)] font-mono">
-                    Mood: {activeSection.mood}
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-2 opacity-50">
-                  <Music className="h-6 w-6 mx-auto text-[var(--color-muted)] mb-2" />
-                  <p className="text-xs text-[var(--color-muted)] font-mono uppercase tracking-[0.2em]">
-                    {currentTime === 0 ? "Press play to preview storyboard" : "Storyboard complete"}
-                  </p>
-                </div>
-              )}
-
-              {/* Subtle Progress bar overlay */}
-              {song?.lengthSeconds && (
-                <div className="absolute bottom-0 left-0 h-1 bg-[var(--color-accent)]/40 transition-all duration-100 ease-linear shadow-[0_0_10px_var(--color-accent)]" 
-                     style={{ width: `${Math.min((currentTime / song.lengthSeconds) * 100, 100)}%` }} 
-                />
-              )}
-            </div>
-
-            <audio 
-              controls 
-              src={song.url} 
-              className="h-8 w-full"
-              onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
+      ) : song && !song.archived ? (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          {/* Left Column (Sticky Preview + Audio Controls + Subtitles) */}
+          <div className="lg:col-span-5 lg:sticky lg:top-6 space-y-4">
+            <StoryboardPreview
+              currentTime={currentTime}
+              durationSeconds={song.lengthSeconds}
+              sections={sections}
+              clips={clips}
+              activeSubtitle={activeSubtitle}
             />
 
-            {(analyze.error || transcribe.error || generateVideo.error) && (
-              <p className="text-xs text-[var(--color-danger)]">
-                {((analyze.error || transcribe.error || generateVideo.error) as Error).message}
-              </p>
-            )}
+            {/* Audio player card */}
+            <div className="bg-[var(--color-surface)]/45 border border-[var(--color-border)]/45 rounded-xl p-3.5 space-y-3 shadow-sm">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="font-mono text-xs uppercase tracking-widest font-semibold text-[var(--color-fg)]">
+                    {song.name}
+                  </h3>
+                  <p className="text-[10px] uppercase tracking-wider text-[var(--color-muted)] mt-0.5 font-mono">
+                    {song.source} {song.lengthSeconds ? ` · ${song.lengthSeconds}s` : ""}
+                  </p>
+                </div>
+              </div>
+              <audio
+                controls
+                src={song.url}
+                className="h-8 w-full accent-[var(--color-accent)] focus:outline-none"
+                onTimeUpdate={handleTimeUpdate}
+                preload="auto"
+              />
+            </div>
 
             {/* Subtitles Accordion */}
-            <div className="rounded-[var(--radius-control)] border border-[var(--color-border)]/50 bg-[var(--color-surface-2)]/20">
+            <div className="rounded-xl border border-[var(--color-border)]/45 bg-[var(--color-surface)]/25 overflow-hidden transition-all duration-300">
               <button
                 type="button"
                 onClick={() => setIsSubtitlesOpen(!isSubtitlesOpen)}
-                className="flex w-full items-center justify-between p-2 text-left"
+                className="flex w-full items-center justify-between p-3 text-left hover:bg-[var(--color-surface-2)]/10 transition-colors"
+                aria-expanded={isSubtitlesOpen}
+                aria-controls="subtitles-panel"
               >
-                <h2 className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-[var(--color-muted)]">
-                  <FileText className="h-3 w-3" /> Subtitles (SRT)
+                <h2 className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-widest font-semibold text-[var(--color-muted)]">
+                  Subtitles (SRT)
                 </h2>
-                {isSubtitlesOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                <span className="text-[10px] font-mono uppercase tracking-wider text-[var(--color-muted)]/70">
+                  {isSubtitlesOpen ? "Hide Editor" : "Open Editor"}
+                </span>
               </button>
-              {isSubtitlesOpen && (
-                <div className="border-t border-[var(--color-border)]/30 p-2">
-                  <textarea
-                    value={subtitles}
-                    onChange={(e) => setSubtitles(e.target.value)}
-                    placeholder="No subtitles generated yet."
-                    className="h-48 w-full overflow-auto bg-transparent font-mono text-[11px] leading-relaxed text-[var(--color-fg)]/80 focus:outline-none"
+              <div
+                id="subtitles-panel"
+                className={`transition-all duration-300 ease-in-out ${
+                  isSubtitlesOpen ? "max-h-64 border-t border-[var(--color-border)]/20 p-3" : "max-h-0 opacity-0 overflow-hidden"
+                }`}
+              >
+                <textarea
+                  value={subtitles}
+                  onChange={(e) => setSubtitles(e.target.value)}
+                  placeholder="No subtitles generated yet. Run transcription or type subtitles in SRT format here."
+                  className="h-44 w-full bg-transparent font-mono text-[11px] leading-relaxed text-[var(--color-fg)]/80 focus:outline-none resize-none"
+                  aria-label="SRT Subtitles editor"
+                />
+              </div>
+            </div>
+
+            {/* Errors display */}
+            {(analyze.error || transcribe.error || generateVideo.error || generateSingleImage.error || generateBulkImages.error) && (
+              <div className="p-3 bg-[var(--color-danger)]/10 border border-[var(--color-danger)]/30 rounded-xl text-[11px] text-[var(--color-danger)] space-y-1">
+                <p className="font-semibold uppercase tracking-wider font-mono text-[9px]">Operation Failed</p>
+                <p>
+                  {((analyze.error || transcribe.error || generateVideo.error || generateSingleImage.error || generateBulkImages.error) as Error)?.message || "An error occurred."}
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Right Column (Scrollable vertical list of section cards) */}
+          <div className="lg:col-span-7 space-y-5">
+            <h2 className="font-mono text-xs uppercase tracking-widest text-[var(--color-muted)]/85 font-bold border-b border-[var(--color-border)]/20 pb-2">
+              Storyboard Timeline
+            </h2>
+            <div className="space-y-4">
+              {sections.length > 0 ? (
+                sections.map((section, idx) => (
+                  <SectionCard
+                    key={idx}
+                    section={section}
+                    index={idx}
+                    isActive={idx === activeSectionIndex}
+                    clips={clips}
+                    clipGenStates={clipGenStates}
+                    onUpdateSection={handleUpdateSection}
+                    onAddClip={handleAddClip}
+                    onUpdateClipDescription={handleUpdateClipDescription}
+                    onDeleteClip={handleDeleteClip}
+                    onGenerateImage={handleGenerateImage}
+                    onGenerateVideo={handleGenerateVideo}
+                    onMediaError={handleMediaError}
+                    isAddingClip={createClip.isPending && createClip.variables?.sectionIndex === idx}
                   />
+                ))
+              ) : (
+                <div className="flex flex-col items-center justify-center py-16 text-center border border-dashed border-[var(--color-border)]/40 rounded-xl bg-[var(--color-surface)]/10">
+                  <p className="text-[11px] text-[var(--color-muted)]/60 italic font-mono uppercase tracking-wider">
+                    No sections analyzed yet
+                  </p>
+                  <p className="text-[10px] text-[var(--color-muted)]/40 mt-1 max-w-xs">
+                    Run "Analyze Storyboard" in the pipeline stepper to generate sections.
+                  </p>
                 </div>
               )}
             </div>
-
-            {/* Timeline Sections */}
-            <div className="space-y-3">
-              <h2 className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-[var(--color-muted)]">
-                <LayoutList className="h-3 w-3" /> Storyboard Timeline
-              </h2>
-              <div className="relative overflow-x-auto pb-4 scrollbar-thin scrollbar-thumb-[var(--color-border)]/50">
-                <div className="flex gap-4 min-w-max px-1">
-                  {sections.length > 0 ? (
-                    sections.map((section, i) => (
-                      <div
-                        key={i}
-                        className="w-80 shrink-0 space-y-3 rounded-[var(--radius-control)] border border-[var(--color-border)]/50 bg-[var(--color-surface-2)]/30 p-3 text-xs"
-                      >
-                        <div className="border-b border-[var(--color-border)]/30 pb-1.5 font-mono text-[10px] uppercase tracking-tighter">
-                          <span className="text-[var(--color-accent)] font-bold">
-                            {formatSeconds(section.startSeconds)} - {formatSeconds(section.endSeconds)}
-                          </span>
-                        </div>
-                        <textarea
-                          value={section.description}
-                          onChange={(e) => updateSection(i, "description", e.target.value)}
-                          placeholder="Section description..."
-                          className="h-20 w-full bg-transparent leading-snug text-[var(--color-fg)]/90 focus:outline-none resize-none"
-                        />
-                        <div className="space-y-1.5 border-t border-[var(--color-border)]/20 pt-2 text-[10px]">
-                          <div className="flex items-start gap-2">
-                            <span className="shrink-0 font-mono uppercase tracking-widest text-[var(--color-muted)]">Mood:</span>
-                            <textarea
-                              value={section.mood}
-                              onChange={(e) => updateSection(i, "mood", e.target.value)}
-                              className="flex-1 bg-transparent focus:outline-none resize-none"
-                              rows={1}
-                            />
-                          </div>
-                          <div className="flex items-start gap-2">
-                            <span className="shrink-0 font-mono uppercase tracking-widest text-[var(--color-muted)]">Chars:</span>
-                            <textarea
-                              value={section.characters}
-                              onChange={(e) => updateSection(i, "characters", e.target.value)}
-                              className="flex-1 bg-transparent focus:outline-none resize-none"
-                              rows={1}
-                            />
-                          </div>
-                          <div className="flex items-start gap-2">
-                            <span className="shrink-0 font-mono uppercase tracking-widest text-[var(--color-muted)]">Scenes:</span>
-                            <textarea
-                              value={section.scenes}
-                              onChange={(e) => updateSection(i, "scenes", e.target.value)}
-                              className="flex-1 bg-transparent focus:outline-none resize-none"
-                              rows={1}
-                            />
-                          </div>
-                        </div>
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between border-t border-[var(--color-border)]/10 pt-2">
-                            <p className="font-mono text-[9px] uppercase tracking-widest text-[var(--color-accent)]/80">
-                              Generated Clips:
-                            </p>
-                            <button
-                              type="button"
-                              onClick={() => createClip.mutate({ sectionIndex: i, description: "New clip description..." })}
-                              className="text-[var(--color-accent)] hover:text-[var(--color-accent)]/80 transition-colors"
-                              disabled={createClip.isPending}
-                              title="Add new clip"
-                            >
-                              {createClip.isPending && createClip.variables?.sectionIndex === i ? (
-                                <Loader2 className="h-3 w-3 animate-spin" />
-                              ) : (
-                                <Plus className="h-3 w-3" />
-                              )}
-                            </button>
-                          </div>
-                          <div className="space-y-3">
-                            {clips.filter(c => c.sectionIndex === i).map((clip) => {
-                              const clipImage = clip.images?.[0];
-                              const clipVideo = clip.videos?.[0];
-                              const isGeneratingImg = generateSingleImage.variables === clip.id && generateSingleImage.isPending;
-                              const isGeneratingVid = generateVideo.variables === clip.id && generateVideo.isPending;
-
-                              return (
-                                <div key={clip.id} className="group flex flex-col gap-2 rounded bg-[var(--color-surface)]/40 p-2 text-[10px] border border-transparent hover:border-[var(--color-border)]/30 transition-all">
-                                  <div className="flex items-start justify-between gap-2">
-                                    <textarea
-                                      defaultValue={clip.description}
-                                      onBlur={(e) => {
-                                        if (e.target.value !== clip.description) {
-                                          updateClip.mutate({ id: clip.id, description: e.target.value });
-                                        }
-                                      }}
-                                      placeholder="Clip description..."
-                                      className="flex-1 bg-transparent leading-relaxed text-[var(--color-muted)] focus:text-[var(--color-fg)] focus:outline-none resize-none min-h-[40px] transition-colors"
-                                      rows={2}
-                                    />
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        if (confirm("Delete this clip and its generated videos? Existing image objects are not deleted.")) {
-                                          deleteClip.mutate(clip.id);
-                                        }
-                                      }}
-                                      className="opacity-0 group-hover:opacity-100 text-[var(--color-muted)] hover:text-[var(--color-danger)] transition-all p-1"
-                                      disabled={deleteClip.isPending}
-                                      title="Delete clip"
-                                    >
-                                      {deleteClip.isPending && deleteClip.variables === clip.id ? (
-                                        <Loader2 className="h-3 w-3 animate-spin" />
-                                      ) : (
-                                        <Trash2 className="h-3 w-3" />
-                                      )}
-                                    </button>
-                                  </div>
-                                  
-                                  {clipVideo ? (
-                                    <div className="relative aspect-video w-full overflow-hidden rounded bg-black/50 group/vid shadow-sm">
-                                      <video
-                                        src={clipVideo.url}
-                                        controls
-                                        className="absolute inset-0 h-full w-full object-cover"
-                                      />
-                                      <div className="absolute right-2 top-2 opacity-0 transition-opacity group-hover/vid:opacity-100">
-                                        <Button
-                                          size="sm"
-                                          variant="secondary"
-                                          className="h-7 px-2 font-mono text-[9px] uppercase tracking-widest bg-black/50 hover:bg-black/80 border-white/20"
-                                          disabled={isGeneratingVid}
-                                          onClick={() => generateVideo.mutate(clip.id)}
-                                        >
-                                          {isGeneratingVid ? (
-                                            <Loader2 className="h-3 w-3 animate-spin mr-1" />
-                                          ) : (
-                                            <Video className="h-3 w-3 mr-1" />
-                                          )}
-                                          Regen Video
-                                        </Button>
-                                      </div>
-                                    </div>
-                                  ) : clipImage ? (
-                                    <div className="relative aspect-video w-full overflow-hidden rounded bg-black/50 group/img shadow-sm">
-                                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                                      <img 
-                                        src={clipImage.url} 
-                                        alt="Clip" 
-                                        className="absolute inset-0 h-full w-full object-cover transition-transform group-hover/img:scale-105 duration-700" 
-                                      />
-                                      <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/60 opacity-0 group-hover/img:opacity-100 transition-opacity">
-                                        <Button
-                                          size="sm"
-                                          className="h-7 px-2 font-mono text-[9px] uppercase tracking-widest"
-                                          disabled={isGeneratingVid}
-                                          onClick={() => generateVideo.mutate(clip.id)}
-                                        >
-                                          {isGeneratingVid ? (
-                                            <Loader2 className="h-3 w-3 animate-spin mr-1" />
-                                          ) : (
-                                            <Video className="h-3 w-3 mr-1" />
-                                          )}
-                                          Generate Video
-                                        </Button>
-                                        <Button
-                                          size="sm"
-                                          variant="secondary"
-                                          className="h-7 text-[9px] px-2 font-mono uppercase tracking-widest bg-black/40 hover:bg-black/80 border-white/20"
-                                          disabled={isGeneratingImg}
-                                          onClick={() => generateSingleImage.mutate(clip.id)}
-                                        >
-                                          {isGeneratingImg ? (
-                                            <Loader2 className="h-3 w-3 animate-spin mr-1" />
-                                          ) : (
-                                            <ImageIcon className="h-3 w-3 mr-1" />
-                                          )}
-                                          Regen Image
-                                        </Button>
-                                      </div>
-                                    </div>
-                                  ) : (
-                                    <Button
-                                      size="sm"
-                                      variant="secondary"
-                                      className="h-8 w-full text-[10px] font-mono uppercase tracking-widest"
-                                      disabled={isGeneratingImg}
-                                      onClick={() => generateSingleImage.mutate(clip.id)}
-                                    >
-                                      {isGeneratingImg ? (
-                                        <Loader2 className="h-3 w-3 animate-spin mr-2" />
-                                      ) : (
-                                        <ImageIcon className="h-3 w-3 mr-2" />
-                                      )}
-                                      Generate Image
-                                    </Button>
-                                  )}
-                                </div>
-                              );
-                            })}
-                            {clips.filter(c => c.sectionIndex === i).length === 0 && (
-                              <p className="text-[10px] text-[var(--color-muted)] italic py-2 px-1">No clips generated.</p>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <p className="text-[11px] text-[var(--color-muted)] italic py-8">
-                      No sections analyzed yet.
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
           </div>
-        ) : (
-          <p className="text-xs text-[var(--color-muted)]">
-            This song is unavailable or archived.
+        </div>
+      ) : (
+        <div className="flex flex-col items-center justify-center py-20 text-center border border-[var(--color-border)]/30 rounded-xl bg-[var(--color-surface)]/20">
+          <p className="text-xs text-[var(--color-muted)] font-mono uppercase tracking-widest">
+            This song is unavailable or archived
           </p>
-        )}
-      </section>
-
-      <section className="min-h-64 rounded-[var(--radius-control)] border border-dashed border-[var(--color-border)]/80 bg-[var(--color-surface)]/25 p-3">
-        <p className="font-mono text-xs uppercase tracking-widest text-[var(--color-muted)]">
-          TODO: storyboard editor
-        </p>
-      </section>
+        </div>
+      )}
     </div>
   );
 }
