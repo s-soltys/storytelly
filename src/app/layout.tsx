@@ -30,7 +30,7 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col">
         <QueryProvider>
           <header className="border-b border-[var(--color-border)] bg-[var(--color-surface)]">
-            <div className="mx-auto max-w-6xl px-6 py-4 flex items-center justify-between">
+            <div className="mx-auto max-w-[1440px] px-6 py-4 flex items-center justify-between">
               <Link href="/" className="font-mono text-xl uppercase tracking-widest">
                 <span className="text-[var(--color-accent)]">Story</span>telly
               </Link>
@@ -39,7 +39,7 @@ export default function RootLayout({
               </span>
             </div>
           </header>
-          <main className="flex-1 mx-auto w-full max-w-6xl px-6 py-8">
+          <main className="flex-1 mx-auto w-full max-w-[1440px] px-6 py-8">
             {children}
           </main>
         </QueryProvider>
