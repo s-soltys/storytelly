@@ -196,7 +196,7 @@ export async function analyzeSongStructure(args: {
   }
 }
 
-function buildThematicAnalysisMessages(ctx: any, audioBase64: string, totalLength: number): ChatMessage[] {
+export function buildThematicAnalysisMessages(ctx: any, audioBase64: string, totalLength: number): ChatMessage[] {
   const system = [
     "You are a professional music video director.",
     "Your task is to analyze the audio's musical and thematic structure to generate a structural storyboard.",
@@ -251,7 +251,7 @@ function buildThematicAnalysisMessages(ctx: any, audioBase64: string, totalLengt
   ];
 }
 
-function parseStoryboardResponse(text: string): { sections: SongSection[] } {
+export function parseStoryboardResponse(text: string): { sections: SongSection[] } {
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
   if (start === -1 || end === -1) throw new Error("AI failed to return a JSON object.");
@@ -261,7 +261,7 @@ function parseStoryboardResponse(text: string): { sections: SongSection[] } {
   return { sections: data.sections || [] };
 }
 
-function extractSrt(text: string): string {
+export function extractSrt(text: string): string {
   const match = text.match(/\d+\s+\d{2}:\d{2}:\d{2},\d{3} --> \d{2}:\d{2}:\d{2},\d{3}/);
   if (match) {
     return text.slice(text.indexOf(match[0])).trim();
@@ -269,7 +269,7 @@ function extractSrt(text: string): string {
   return text.trim();
 }
 
-function buildClipIdeasMessages(ctx: any, sections: SongSection[], totalLength: number): ChatMessage[] {
+export function buildClipIdeasMessages(ctx: any, sections: SongSection[], totalLength: number): ChatMessage[] {
   const system = [
     "You are an expert cinematographer and storyboard artist.",
     "Your task is to break down a sequence of timeline sections into specific, cinematic visual clip ideas.",
@@ -328,7 +328,7 @@ function buildClipIdeasMessages(ctx: any, sections: SongSection[], totalLength: 
   ];
 }
 
-function parseClipIdeasResponse(text: string, originalSections: SongSection[]): SongSection[] {
+export function parseClipIdeasResponse(text: string, originalSections: SongSection[]): SongSection[] {
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
   if (start === -1 || end === -1) throw new Error("AI failed to return a JSON object for clips.");
