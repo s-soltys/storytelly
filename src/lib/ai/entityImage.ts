@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { db } from "@/db/client";
-import { worlds, characters, locations, stories, storySongs, songClips, images, videos, settings as settingsTable, aiCalls, type ImageOwnerKind, type VideoOwnerKind } from "@/db/schema";
+import { worlds, characters, locations, stories, storyCharacters, storyLocations, storySongs, songClips, images, videos, settings as settingsTable, aiCalls, type ImageOwnerKind, type VideoOwnerKind } from "@/db/schema";
 import { eq, and, inArray, max, desc } from "drizzle-orm";
 import { loadImages } from "@/lib/server";
 import { putObject } from "@/lib/storage";
@@ -219,50 +219,118 @@ export async function generateClipImage(args: {
   const section = sections[clip.sectionIndex];
   if (!section) throw new GenerationError(404, "Parent section not found for clip");
 
-  // Load relevant context images
+  // Load the story's linked characters and locations via join tables
+  // (reliable — does not depend on AI-generated free-text name matching)
+  const [charLinks, locLinks] = await Promise.all([
+    db
+      .select({ characterId: storyCharacters.characterId })
+      .from(storyCharacters)
+      .where(eq(storyCharacters.storyId, story.id)),
+    db
+      .select({ locationId: storyLocations.locationId })
+      .from(storyLocations)
+      .where(eq(storyLocations.storyId, story.id)),
+  ]);
+  const charIds = charLinks.map((l) => l.characterId);
+  const locIds = locLinks.map((l) => l.locationId);
+
+  const [storyChars, storyLocs] = await Promise.all([
+    charIds.length
+      ? db.select().from(characters).where(inArray(characters.id, charIds))
+      : Promise.resolve([]),
+    locIds.length
+      ? db.select().from(locations).where(inArray(locations.id, locIds))
+      : Promise.resolve([]),
+  ]);
+
+  // Try to narrow to entities mentioned in this section, falling back to all story entities
+  const sectionCharsText = (section.characters || "").toLowerCase();
+  const sectionScenesText = (section.scenes || "").toLowerCase();
+
+  const mentionedChars = storyChars.filter(
+    (c) => sectionCharsText.includes(c.name.toLowerCase()),
+  );
+  const mentionedLocs = storyLocs.filter(
+    (l) => sectionScenesText.includes(l.name.toLowerCase()),
+  );
+
+  // If name matching found nothing, fall back to all story entities so we always have references
+  const effectiveChars = mentionedChars.length > 0 ? mentionedChars : storyChars;
+  const effectiveLocs = mentionedLocs.length > 0 ? mentionedLocs : storyLocs;
+
+  console.log(
+    `[generateClipImage] clip=${args.clipId} section=${clip.sectionIndex}` +
+    ` | storyChars=${storyChars.length} matched=${mentionedChars.length} effective=${effectiveChars.length}` +
+    ` | storyLocs=${storyLocs.length} matched=${mentionedLocs.length} effective=${effectiveLocs.length}`,
+  );
+
+  // Collect labelled image parts: world mood, then each character, then each location
   const imageParts: ChatPart[] = [];
-  
+  const imageLabels: string[] = [];
+
   // 1. World Mood
   const moodImages = await loadImages("world_mood", world.id);
-  for (const img of moodImages.slice(0, 1)) {
+  for (const img of moodImages.slice(0, 2)) {
     const dataUrl = await imageToDataUrl({ s3Key: img.s3Key, mimeType: img.mimeType });
-    if (dataUrl) imageParts.push({ type: "image_url", image_url: { url: dataUrl } });
-  }
-
-  // 2. Character & Location Images (only those mentioned in the section)
-  const allChars = await db.select().from(characters).where(eq(characters.worldId, world.id));
-  const allLocs = await db.select().from(locations).where(eq(locations.worldId, world.id));
-
-  const mentionedChars = allChars.filter(c => section.characters.toLowerCase().includes(c.name.toLowerCase()));
-  const mentionedLocs = allLocs.filter(l => section.scenes.toLowerCase().includes(l.name.toLowerCase()));
-
-  for (const entity of [...mentionedChars, ...mentionedLocs]) {
-    const kind: ImageOwnerKind = (entity as any).name ? ("description" in entity && "worldId" in entity && !("storyId" in entity) && (entity as any).id === mentionedChars.find(c=>c.id === entity.id)?.id) ? "character" : "location" : "location";
-    const entityImages = await loadImages(kind as ImageOwnerKind, entity.id);
-    for (const img of entityImages.slice(0, 1)) {
-      const dataUrl = await imageToDataUrl({ s3Key: img.s3Key, mimeType: img.mimeType });
-      if (dataUrl) imageParts.push({ type: "image_url", image_url: { url: dataUrl } });
+    if (dataUrl) {
+      imageParts.push({ type: "image_url", image_url: { url: dataUrl } });
+      imageLabels.push(`[World Mood Reference for "${world.name}"]`);
     }
   }
+
+  // 2. Character reference images
+  const charIdSet = new Set(effectiveChars.map((c) => c.id));
+  for (const char of effectiveChars) {
+    const charImages = await loadImages("character", char.id);
+    for (const img of charImages.slice(0, 2)) {
+      const dataUrl = await imageToDataUrl({ s3Key: img.s3Key, mimeType: img.mimeType });
+      if (dataUrl) {
+        imageParts.push({ type: "image_url", image_url: { url: dataUrl } });
+        imageLabels.push(`[CHARACTER REFERENCE: "${char.name}" — the generated image MUST depict this character with the same visual identity, face, and appearance]`);
+      }
+    }
+  }
+
+  // 3. Location reference images
+  for (const loc of effectiveLocs) {
+    const locImages = await loadImages("location", loc.id);
+    for (const img of locImages.slice(0, 1)) {
+      const dataUrl = await imageToDataUrl({ s3Key: img.s3Key, mimeType: img.mimeType });
+      if (dataUrl) {
+        imageParts.push({ type: "image_url", image_url: { url: dataUrl } });
+        imageLabels.push(`[LOCATION REFERENCE: "${loc.name}" — use this as the visual basis for the environment]`);
+      }
+    }
+  }
+
+  console.log(
+    `[generateClipImage] clip=${args.clipId} | total reference images: ${imageParts.length}` +
+    ` (mood=${moodImages.length}, chars=${effectiveChars.length}, locs=${effectiveLocs.length})`,
+  );
 
   const prompt = [
     `Generate a high-quality storyboard clip image for the world "${world.name}".`,
     `World Art Style: ${world.artStyle}`,
     `Story Context: ${story.description}`,
     "",
+    "REFERENCE IMAGES PROVIDED (in order):",
+    ...imageLabels.map((label, i) => `  Image ${i + 1}: ${label}`),
+    "",
     `Scene Mood: ${section.mood}`,
-    `Scene Characters: ${mentionedChars.map(c => `${c.name} (${c.description})`).join(", ") || "None"}`,
-    `Scene Location: ${mentionedLocs.map(l => `${l.name} (${l.description})`).join(", ") || "None"}`,
+    `Scene Characters: ${effectiveChars.map((c) => `${c.name} (${c.description})`).join(", ") || "None"}`,
+    `Scene Location: ${effectiveLocs.map((l) => `${l.name} (${l.description})`).join(", ") || "None"}`,
     `Scene Overall Description: ${section.description}`,
     "",
     `SPECIFIC CLIP TO RENDER:`,
     `${clip.description}`,
     "",
-    "Instructions:",
-    `- Maintain strict stylistic consistency with the provided world and entity reference images.`,
-    `- Focus heavily on the "SPECIFIC CLIP TO RENDER" action.`,
-    `- Output the image in 16:9 aspect ratio.`,
-    `- No text overlays or watermarks.`,
+    "CRITICAL INSTRUCTIONS:",
+    "- CHARACTER IDENTITY: Each character in the generated image MUST look like their reference photo. Reproduce their face, build, hair, skin tone, and distinguishing features faithfully. Do NOT invent a new appearance.",
+    "- LOCATION IDENTITY: If a location reference is provided, use its architecture, colors, and atmosphere as the environment basis.",
+    "- STYLE CONSISTENCY: Maintain the world art style and mood shown in the world mood reference images.",
+    "- Focus heavily on the \"SPECIFIC CLIP TO RENDER\" action.",
+    "- Output the image in 16:9 aspect ratio.",
+    "- No text overlays or watermarks.",
   ].filter(Boolean).join("\n");
 
   const messages: ChatMessage[] = [
@@ -294,7 +362,9 @@ export async function generateClipImage(args: {
     task: `generate_clip_image`,
     model: imageModel,
     prompt: serializePromptForStorage(messages),
-    response: result.images.length > 0 ? `[${result.images.length} images generated]` : result.text,
+    response: result.images.length > 0
+      ? `[${result.images.length} images generated | refs: ${imageParts.length} (chars=${effectiveChars.length}, locs=${effectiveLocs.length})]`
+      : result.text,
     costUsd: result.usage.costUsd?.toString(),
     durationMs: Date.now() - start,
   });
