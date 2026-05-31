@@ -57,6 +57,7 @@ src/
 - **Instruction over Correction**: Trust the AI's ability to follow complex instructions. Do NOT use brittle code to "clamp", "fix", or "correct" AI outputs (e.g., hard-coding timeline logic to fix AI duration errors). Instead, refine the prompt and let the model own the output quality. Brittle post-processing code hides prompt weaknesses and complicates maintenance.
 - **Structured Data**: Prefer single consolidated JSON objects for complex multi-modal tasks to ensure high reliability across different model tiers.
 - **Elision for Logs**: Always elide large binary data (Base64 images/audio) before saving AI prompts to the database logs.
+- **Artifact Integrity**: Always maintain `task.md` and `walkthrough.md` for any major functional feature.
 
 ### Schema changes
 1. Edit `src/db/schema.ts`.
@@ -71,12 +72,16 @@ src/
 - Use plain `<img src={presignedUrl}>` — **don't use `next/image` for presigned URLs**, the cache outlives the signature.
 - Owners must exist before uploading: forms create the entity first, then route to a page that mounts `<ImageUploader>`.
 
-### Songs
+### Songs & Storyboards
 - Store song metadata in `story_songs`; MP3 bytes go to S3/MinIO under `stories/{storyId}/songs/...`.
 - Song responses include presigned GET URLs because the bucket is private. Use a plain HTML `<audio controls>` player.
 - Songs are either `generated` by OpenRouter Lyria or `uploaded` by the user. Only MP3 uploads are supported.
 - A story may have many songs. Songs can be archived; non-archived songs link to their own storyboard page.
-- The storyboard page is tied to a specific non-archived song and currently shows that MP3 player plus a TODO workspace below it.
+
+### Architectural Patterns
+- **Modular Workspaces**: For complex, feature-heavy pages, break the UI into granular subcomponents (e.g., separate cards, toolbars, and preview panes). This prevents mega-files and isolates React re-renders.
+- **Concurrent Async State**: When handling asynchronous tasks for lists of items (e.g., batch generating media), track loading/error states in a local dictionary/map keyed by item ID rather than a single global boolean. This avoids locking up the whole page and prevents massive cascading re-renders.
+- **Asset Hierarchy in Exports**: When exporting complex multi-media projects (like ZIP archives with timelines), always prioritize including the highest-fidelity generated assets (e.g., videos over static fallback images).
 
 ### Naming rules (business)
 - Character and location `name` is **immutable after creation** and **unique per world**. PATCH zod schemas omit `name` deliberately — keep it that way.
@@ -88,7 +93,8 @@ src/
 - Use the CSS variables defined in [src/app/globals.css](src/app/globals.css): `--color-bg`, `--color-surface`, `--color-fg`, `--color-accent` (magenta), etc. Don't introduce new colors casually.
 - Headings use `font-mono` + `uppercase tracking-widest` — that's the look.
 - Keep dark-only. No theme switcher.
-- Treat entity pages as compact workspaces, not document-style forms. Prefer dense two-column layouts on desktop, narrow left labels, quiet field surfaces, and small side panels for image uploaders.
+- **Spacious Design Bias**: The user prefers "spacious" layouts that utilize high-resolution screen real estate effectively. Avoid cramped fixed-width containers (`max-w-6xl` or similar). Favor responsive, wide-container patterns (e.g., `max-w-[1440px]`).
+- Treat complex pages as comprehensive workspaces, not document-style forms. Utilize two-column or multi-pane layouts (like sticky preview panes alongside scrollable sections) to distribute density across the screen.
 - Inline editable fields should blend into the surrounding layout: use low-contrast backgrounds/borders by default, visible focus/hover states, and compact status text for autosave. Avoid large bordered form cards unless creating a brand-new entity.
 - Do not create separate edit views for worlds, characters, locations, or stories when the entity already exists. Display and editing happen in the same view; changes autosave after short debounce where the record already exists.
 - Song generation happens on a dedicated song creation page: choose length, optionally generate/edit lyrics for that song, then generate the MP3.
