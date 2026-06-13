@@ -133,6 +133,45 @@ describe("NamedEntityForms", () => {
       });
     });
 
+    it("generates image via AI when generate button is clicked", async () => {
+      vi.mocked(api.get).mockResolvedValue(mockCharacter);
+      vi.mocked(api.post).mockResolvedValue({ id: "img-new", url: "https://example.com/img.png" });
+
+      renderWithProviders(<EditNamedEntityForm kind="character" worldId="world-1" entityId="char-1" />);
+
+      await screen.findByRole("heading", { name: "Aiko Reiko" });
+
+      const genBtn = screen.getByRole("button", { name: /generate image/i });
+      await userEvent.click(genBtn);
+
+      await waitFor(() => {
+        expect(api.post).toHaveBeenCalledWith("/api/worlds/world-1/generate-image", {
+          kind: "character",
+          id: "char-1",
+        });
+      });
+    });
+
+    it("renders location edit form correctly", async () => {
+      const mockLocation = { id: "loc-1", worldId: "world-1", name: "Neo Tokyo", description: "A city", images: [] };
+      vi.mocked(api.get).mockResolvedValue(mockLocation);
+
+      renderWithProviders(<EditNamedEntityForm kind="location" worldId="world-1" entityId="loc-1" />);
+
+      expect(await screen.findByRole("heading", { name: "Neo Tokyo" })).toBeInTheDocument();
+      expect(screen.getByRole("textbox")).toHaveValue("A city");
+    });
+
+    it("shows image warning for characters with no images", async () => {
+      const charNoImages = { ...mockCharacter, images: [] };
+      vi.mocked(api.get).mockResolvedValue(charNoImages);
+
+      renderWithProviders(<EditNamedEntityForm kind="character" worldId="world-1" entityId="char-1" />);
+
+      await screen.findByRole("heading", { name: "Aiko Reiko" });
+      expect(screen.getByText(/characters need at least one image/i)).toBeInTheDocument();
+    });
+
     it("deletes entity and redirects back to world on delete click", async () => {
       vi.mocked(api.get).mockResolvedValue(mockCharacter);
       vi.mocked(api.del).mockResolvedValue({});

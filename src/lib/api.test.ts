@@ -88,4 +88,52 @@ describe("API client wrapper", () => {
     });
     expect(result).toEqual({ success: true });
   });
+
+  it("performs PATCH requests with JSON payload", async () => {
+    const payload = { name: "Updated" };
+    const mockResponse = {
+      ok: true,
+      status: 200,
+      json: async () => ({ id: "1", ...payload }),
+    };
+    vi.mocked(fetch).mockResolvedValue(mockResponse as Response);
+
+    const result = await api.patch("/api/worlds/1", payload);
+    expect(fetch).toHaveBeenCalledWith("/api/worlds/1", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    expect(result).toEqual({ id: "1", ...payload });
+  });
+
+  it("performs PUT requests with JSON payload", async () => {
+    const payload = { name: "Replaced" };
+    const mockResponse = {
+      ok: true,
+      status: 200,
+      json: async () => ({ id: "1", ...payload }),
+    };
+    vi.mocked(fetch).mockResolvedValue(mockResponse as Response);
+
+    const result = await api.put("/api/worlds/1", payload);
+    expect(fetch).toHaveBeenCalledWith("/api/worlds/1", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    expect(result).toEqual({ id: "1", ...payload });
+  });
+
+  it("throws error with statusText when body is not parseable", async () => {
+    const mockResponse = {
+      ok: false,
+      status: 500,
+      statusText: "Internal Server Error",
+      json: async () => { throw new Error("not json"); },
+    };
+    vi.mocked(fetch).mockResolvedValue(mockResponse as unknown as Response);
+
+    await expect(api.get("/api/worlds")).rejects.toThrowError("Internal Server Error");
+  });
 });

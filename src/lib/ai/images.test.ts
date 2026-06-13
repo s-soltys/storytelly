@@ -1,5 +1,5 @@
 import { vi, describe, it, expect, beforeEach } from "vitest";
-import { imageToDataUrl } from "./images";
+import { imageToDataUrl, guessMime } from "./images";
 import { getObjectBuffer } from "@/lib/storage";
 
 vi.mock("@/lib/storage", () => ({
@@ -53,6 +53,38 @@ describe("AI Images helper", () => {
 
     // Should return base64 of the mocked sharp buffer
     expect(result).toBe(`data:image/jpeg;base64,${mockSharpBuffer.toString("base64")}`);
+  });
+
+  describe("guessMime", () => {
+    it("returns image/jpeg for jpg extension", () => {
+      expect(guessMime("photo.jpg")).toBe("image/jpeg");
+      expect(guessMime("photo.jpeg")).toBe("image/jpeg");
+    });
+
+    it("returns image/png for png extension", () => {
+      expect(guessMime("photo.png")).toBe("image/png");
+    });
+
+    it("returns image/webp for webp extension", () => {
+      expect(guessMime("photo.webp")).toBe("image/webp");
+    });
+
+    it("returns image/gif for gif extension", () => {
+      expect(guessMime("photo.gif")).toBe("image/gif");
+    });
+
+    it("returns application/octet-stream for unknown extension", () => {
+      expect(guessMime("photo.dat")).toBe("application/octet-stream");
+    });
+
+    it("handles uppercase extensions", () => {
+      expect(guessMime("photo.JPG")).toBe("image/jpeg");
+      expect(guessMime("photo.PNG")).toBe("image/png");
+    });
+
+    it("handles key with no extension", () => {
+      expect(guessMime("photo")).toBe("application/octet-stream");
+    });
   });
 
   it("returns null if resized image still exceeds MAX_DATA_URL_IMAGE_BYTES", async () => {

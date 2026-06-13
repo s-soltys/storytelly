@@ -210,6 +210,75 @@ describe("StoryForm", () => {
       expect(await screen.findByText("Saved.")).toBeInTheDocument();
     });
 
+    it("displays LyricsHistoryPanel when versions exist", async () => {
+      vi.mocked(api.get).mockImplementation((url: string) => {
+        if (url.includes("characters")) return Promise.resolve(mockCharacters);
+        if (url.includes("locations")) return Promise.resolve(mockLocations);
+        if (url.includes("songs")) return Promise.resolve([]);
+        if (url.includes("lyrics/versions"))
+          return Promise.resolve([
+            {
+              id: "v1",
+              storyId: storyUuid,
+              lyrics: "Old lyrics version",
+              prompt: "Initial draft",
+              createdAt: new Date().toISOString(),
+            },
+          ]);
+        if (url.includes(`stories/${storyUuid}`)) return Promise.resolve(mockStory);
+        return Promise.resolve([]);
+      });
+
+      renderWithProviders(<StoryForm kind="edit" worldId="world-1" storyId={storyUuid} />);
+
+      await waitFor(() => {
+        expect(screen.getByText(/version history/i)).toBeInTheDocument();
+      });
+
+      await userEvent.click(screen.getByText(/version history/i));
+
+      await waitFor(() => {
+        expect(screen.getByText("Initial draft")).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /restore/i })).toBeInTheDocument();
+      });
+    });
+
+    it("shows generate lyrics button when lyrics are empty and triggers generation", async () => {
+      const mockStoryNoLyrics = { ...mockStory, lyrics: "" };
+      vi.mocked(api.get).mockImplementation((url: string) => {
+        if (url.includes("characters")) return Promise.resolve(mockCharacters);
+        if (url.includes("locations")) return Promise.resolve(mockLocations);
+        if (url.includes("songs")) return Promise.resolve([]);
+        if (url.includes("lyrics/versions")) return Promise.resolve([]);
+        if (url.includes(`stories/${storyUuid}`)) return Promise.resolve(mockStoryNoLyrics);
+        return Promise.resolve([]);
+      });
+
+      renderWithProviders(<StoryForm kind="edit" worldId="world-1" storyId={storyUuid} />);
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /generate lyrics/i })).toBeInTheDocument();
+      });
+    });
+
+    it("shows refine input when lyrics exist and triggers refinement", async () => {
+      vi.mocked(api.get).mockImplementation((url: string) => {
+        if (url.includes("characters")) return Promise.resolve(mockCharacters);
+        if (url.includes("locations")) return Promise.resolve(mockLocations);
+        if (url.includes("songs")) return Promise.resolve([]);
+        if (url.includes("lyrics/versions")) return Promise.resolve([]);
+        if (url.includes(`stories/${storyUuid}`)) return Promise.resolve(mockStory);
+        return Promise.resolve([]);
+      });
+
+      renderWithProviders(<StoryForm kind="edit" worldId="world-1" storyId={storyUuid} />);
+
+      await waitFor(() => {
+        expect(screen.getByPlaceholderText(/tell ai what to change/i)).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /refine/i })).toBeInTheDocument();
+      });
+    });
+
     it("deletes story and redirects on trash click", async () => {
       vi.mocked(api.del).mockResolvedValue({});
 

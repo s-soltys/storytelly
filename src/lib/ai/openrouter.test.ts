@@ -93,6 +93,123 @@ describe("OpenRouter API Client wrapper", () => {
         })
       ).rejects.toThrowError("OpenRouter 500: Internal server error");
     });
+
+    it("should throw OpenRouterError on non-JSON response", async () => {
+      const mockResponse = {
+        ok: true,
+        status: 200,
+        text: async () => "not valid json",
+      };
+      vi.mocked(fetch).mockResolvedValue(mockResponse as any);
+
+      await expect(
+        callOpenRouter({
+          apiKey: "test-key",
+          model: "test-model",
+          messages: [],
+        })
+      ).rejects.toThrowError("OpenRouter returned non-JSON response");
+    });
+
+    it("should throw OpenRouterError when response has no text, images, or tool_calls", async () => {
+      const mockResponse = {
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            choices: [{ message: { content: null } }],
+            usage: {},
+          }),
+      };
+      vi.mocked(fetch).mockResolvedValue(mockResponse as any);
+
+      await expect(
+        callOpenRouter({
+          apiKey: "test-key",
+          model: "test-model",
+          messages: [],
+        })
+      ).rejects.toThrowError("OpenRouter response missing text, image, and tool_calls");
+    });
+
+    it("should extract images from content parts array", async () => {
+      const mockResponse = {
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            choices: [{
+              message: {
+                content: [
+                  { type: "image_url", image_url: { url: "https://example.com/img.png" } },
+                ],
+              },
+            }],
+            usage: {},
+          }),
+      };
+      vi.mocked(fetch).mockResolvedValue(mockResponse as any);
+
+      const result = await callOpenRouter({
+        apiKey: "test-key",
+        model: "test-model",
+        messages: [],
+      });
+
+      expect(result.images).toEqual(["https://example.com/img.png"]);
+    });
+
+    it("should handle tool_calls in response", async () => {
+      const mockResponse = {
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            choices: [{
+              message: {
+                content: null,
+                tool_calls: [{
+                  id: "call-1",
+                  type: "function",
+                  function: { name: "test_fn", arguments: "{}" },
+                }],
+              },
+            }],
+            usage: { prompt_tokens: 5, completion_tokens: 10 },
+          }),
+      };
+      vi.mocked(fetch).mockResolvedValue(mockResponse as any);
+
+      const result = await callOpenRouter({
+        apiKey: "test-key",
+        model: "test-model",
+        messages: [],
+      });
+
+      expect(result.tool_calls).toHaveLength(1);
+      expect(result.tool_calls![0].function.name).toBe("test_fn");
+      expect(result.usage.promptTokens).toBe(5);
+    });
+  });
+
+  describe("transcribeAudio", () => {
+    it("should handle non-JSON error response", async () => {
+      const mockResponse = {
+        ok: false,
+        status: 502,
+        text: async () => "Gateway error",
+      };
+      vi.mocked(fetch).mockResolvedValue(mockResponse as any);
+
+      await expect(
+        transcribeAudio({
+          apiKey: "test-key",
+          model: "whisper",
+          audioBase64: "base64",
+          format: "mp3",
+        })
+      ).rejects.toThrowError("OpenRouter Transcription 502: Gateway error");
+    });
   });
 
   describe("transcribeAudio", () => {

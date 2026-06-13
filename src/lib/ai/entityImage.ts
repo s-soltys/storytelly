@@ -12,7 +12,7 @@ import { GenerationError } from "./songScript";
 
 const GENERATED_VIDEO_EXT = "mp4";
 
-async function saveAiVideo(args: {
+export async function saveAiVideo(args: {
   buffer: Buffer;
   mimeType: string;
   durationSeconds: number;
@@ -90,7 +90,7 @@ export async function saveAiImage(imageUrl: string, ownerKind: ImageOwnerKind, o
   return row;
 }
 
-function extensionFromMime(mimeType: string | null, fallback: string): string {
+export function extensionFromMime(mimeType: string | null, fallback: string): string {
   if (!mimeType) return fallback;
   const normalized = mimeType.split(";")[0]?.trim().toLowerCase();
   if (normalized === "video/mp4" || normalized === "application/mp4") return "mp4";

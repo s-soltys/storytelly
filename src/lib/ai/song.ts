@@ -194,7 +194,7 @@ export async function loadSongContext(args: {
 }
 
 /** Format seconds as mm:ss */
-function toTimestamp(seconds: number): string {
+export function toTimestamp(seconds: number): string {
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
@@ -205,7 +205,7 @@ function toTimestamp(seconds: number): string {
  * required duration from the structure itself, not just a text hint.
  * Sections are proportional to the requested length.
  */
-function buildSongTimeline(totalSeconds: number): string {
+export function buildSongTimeline(totalSeconds: number): string {
   // Proportional section layout: intro 10%, verse1 20%, chorus 20%,
   // verse2 20%, chorus2 20%, outro 10% — clamped to integer seconds.
   const proportions: Array<{ name: string; weight: number }> = [
@@ -230,7 +230,7 @@ function buildSongTimeline(totalSeconds: number): string {
   return lines.join("\n");
 }
 
-async function buildSongMessages(ctx: SongContext): Promise<ChatMessage[]> {
+export async function buildSongMessages(ctx: SongContext): Promise<ChatMessage[]> {
   const durationMmSs = toTimestamp(ctx.story.lengthSeconds);
   const system = [
     "You compose complete songs for AI music videos.",

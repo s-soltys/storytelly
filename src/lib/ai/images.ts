@@ -54,7 +54,7 @@ async function resizeReferenceImage(
     .toBuffer();
 }
 
-function guessMime(key: string): string {
+export function guessMime(key: string): string {
   const ext = key.split(".").pop()?.toLowerCase();
   switch (ext) {
     case "jpg":
