@@ -12,7 +12,7 @@ async function handle<T>(res: Response): Promise<T> {
 
 export const api = {
   get: <T>(url: string) =>
-    fetch(url, { cache: "no-store" }).then((r) => handle<T>(r)),
+    fetch(url).then((r) => handle<T>(r)),
   post: <T>(url: string, body: unknown) =>
     fetch(url, {
       method: "POST",
@@ -50,7 +50,6 @@ export type WorldDto = {
 export type ImageDto = {
   id: string;
   url: string;
-  s3Key: string;
   position: number;
 };
 
@@ -93,7 +92,6 @@ export type StorySongDto = {
   name: string;
   source: "generated" | "uploaded";
   url: string;
-  s3Key: string;
   mimeType: string;
   sizeBytes: number | null;
   lengthSeconds: number | null;
@@ -130,7 +128,6 @@ export type SongClipDto = {
 export type VideoDto = {
   id: string;
   url: string;
-  s3Key: string;
   position: number;
   mimeType: string | null;
   sizeBytes: number | null;
@@ -158,16 +155,4 @@ export type AiCallDto = {
   createdAt: string;
 };
 
-export type DevelopResponse = {
-  reply: string;
-  lyrics?: string;
-  storyUpdates?: {
-    description?: string;
-    characterIds?: string[];
-    locationIds?: string[];
-    lengthSeconds?: number;
-  };
-  nextPhase: "foundation" | "lyrics" | "refine";
-  chips?: { id: string; label: string }[];
-  multiSelect?: boolean;
-};
+export type { DevelopResponse } from "@/components/story/types";

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -12,6 +12,7 @@ import {
   type CharacterCreate,
 } from "@/lib/validation";
 import { api, type CharacterDto, type ImageDto } from "@/lib/api";
+import { queryKeys } from "@/lib/queries";
 import type { ImageOwnerKind } from "@/db/schema";
 import { Button } from "@/components/ui/button";
 import { Input, Textarea } from "@/components/ui/input";
@@ -23,6 +24,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { ImageUploader } from "@/components/ImageUploader";
+import { ConfirmDialog } from "@/components/ui/dialog";
 import { ArrowLeft, Trash2, Wand2 } from "lucide-react";
 
 export type NamedEntityKind = "character" | "location";
@@ -76,7 +78,8 @@ export function NewNamedEntityForm({
         `/api/worlds/${worldId}/${cfg.pluralPath}`,
         values,
       );
-      qc.invalidateQueries({ queryKey: [cfg.listKey, worldId] });
+      const listKey = cfg.listKey === "characters" ? queryKeys.world.characters(worldId) : queryKeys.world.locations(worldId);
+      qc.invalidateQueries({ queryKey: listKey });
       router.push(`/worlds/${worldId}/${cfg.pluralPath}/${created.id}`);
     } catch (e) {
       setError("root", { message: (e as Error).message });
@@ -171,9 +174,12 @@ export function EditNamedEntityForm({
   const cfg = KIND_CONFIG[kind];
   const router = useRouter();
   const qc = useQueryClient();
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const listKey = cfg.listKey === "characters" ? queryKeys.world.characters(worldId) : queryKeys.world.locations(worldId);
+  const detailKey = cfg.ownerKind === "character" ? queryKeys.character.detail(entityId) : queryKeys.location.detail(entityId);
 
   const { data, refetch } = useQuery({
-    queryKey: [cfg.ownerKind, entityId],
+    queryKey: detailKey,
     queryFn: () =>
       api.get<CharacterDto>(
         `/api/worlds/${worldId}/${cfg.pluralPath}/${entityId}`,
@@ -200,7 +206,7 @@ export function EditNamedEntityForm({
         `/api/worlds/${worldId}/${cfg.pluralPath}/${entityId}`,
         values,
       );
-      qc.invalidateQueries({ queryKey: [cfg.listKey, worldId] });
+      qc.invalidateQueries({ queryKey: listKey });
     } catch (e) {
       setError("root", { message: (e as Error).message });
     }
@@ -210,7 +216,7 @@ export function EditNamedEntityForm({
     mutationFn: () =>
       api.del<void>(`/api/worlds/${worldId}/${cfg.pluralPath}/${entityId}`),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: [cfg.listKey, worldId] });
+      qc.invalidateQueries({ queryKey: listKey });
       router.push(`/worlds/${worldId}`);
     },
   });
@@ -222,7 +228,7 @@ export function EditNamedEntityForm({
         id: entityId,
       }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: [cfg.ownerKind, entityId] });
+      qc.invalidateQueries({ queryKey: detailKey });
       refetch();
     },
   });
@@ -259,10 +265,7 @@ export function EditNamedEntityForm({
             </Button>
             <Button
               variant="danger"
-              onClick={() => {
-                if (confirm(`Delete this ${cfg.label.toLowerCase()}?`))
-                  del.mutate();
-              }}
+              onClick={() => setConfirmOpen(true)}
               disabled={del.isPending}
             >
               <Trash2 className="h-4 w-4" />
@@ -308,10 +311,10 @@ export function EditNamedEntityForm({
           <ImageUploader
             ownerKind={cfg.ownerKind}
             ownerId={entityId}
-            initial={data.images ?? []}
+            images={data.images ?? []}
             onChange={(imgs) => {
               // sync the cache so the warning clears
-              qc.setQueryData([cfg.ownerKind, entityId], (prev: CharacterDto | undefined) =>
+              qc.setQueryData(detailKey, (prev: CharacterDto | undefined) =>
                 prev ? { ...prev, images: imgs as ImageDto[] } : prev,
               );
               refetch();
@@ -319,6 +322,20 @@ export function EditNamedEntityForm({
           />
         </CardContent>
       </Card>
+
+      <ConfirmDialog
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        title={`Delete this ${cfg.label.toLowerCase()}?`}
+        description="This action cannot be undone."
+        confirmLabel="Delete"
+        variant="danger"
+        onConfirm={() => {
+          del.mutate();
+          setConfirmOpen(false);
+        }}
+        loading={del.isPending}
+      />
     </div>
   );
 }

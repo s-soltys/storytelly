@@ -3,6 +3,7 @@
 import { useParams, useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { api, type AiCallDto, type StoryDto } from "@/lib/api";
+import { queryKeys } from "@/lib/queries";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Clock, Code, MessageSquare, Terminal } from "lucide-react";
 import Link from "next/link";
@@ -14,12 +15,12 @@ export default function AiLogsPage() {
   const router = useRouter();
 
   const story = useQuery({
-    queryKey: ["story", storyId],
+    queryKey: queryKeys.story.detail(storyId),
     queryFn: () => api.get<StoryDto>(`/api/worlds/${worldId}/stories/${storyId}`),
   });
 
   const logs = useQuery({
-    queryKey: ["story-logs", storyId],
+    queryKey: queryKeys.story.logs(storyId),
     queryFn: () => api.get<AiCallDto[]>(`/api/worlds/${worldId}/stories/${storyId}/logs`),
   });
 

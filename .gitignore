@@ -41,3 +41,10 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# project-specific tooling
+fix_db.ts
+test-db.js
+test-or.js
+.drizzle/
+*.log

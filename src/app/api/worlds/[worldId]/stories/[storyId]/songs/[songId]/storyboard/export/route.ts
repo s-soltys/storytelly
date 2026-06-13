@@ -1,6 +1,7 @@
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { db } from "@/db/client";
 import { images, songClips, stories, storySongs, videos } from "@/db/schema";
+import type { SongSection } from "@/db/schema";
 import { jsonError } from "@/lib/server";
 import { getObjectBuffer } from "@/lib/storage";
 import { createZip, type ZipEntry } from "@/lib/zip";
@@ -234,7 +235,7 @@ ${args.clips
 }
 
 function timelineDuration(song: typeof storySongs.$inferSelect) {
-  const sectionsEnd = Math.max(0, ...(song.sections || []).map((section) => section.endSeconds));
+  const sectionsEnd = Math.max(0, ...(song.sections || []).map((section: SongSection) => section.endSeconds));
   return Math.max(1, song.lengthSeconds || sectionsEnd);
 }
 

@@ -1,8 +1,6 @@
-import { eq } from "drizzle-orm";
-import { db } from "@/db/client";
-import { worlds } from "@/db/schema";
 import { worldUpdateSchema } from "@/lib/validation";
-import { jsonError, loadImages } from "@/lib/server";
+import { jsonError } from "@/lib/server";
+import { getWorldById, updateWorld, deleteWorld } from "@/lib/services/worlds";
 
 export const dynamic = "force-dynamic";
 
@@ -10,10 +8,9 @@ type Ctx = { params: Promise<{ worldId: string }> };
 
 export async function GET(_req: Request, { params }: Ctx) {
   const { worldId } = await params;
-  const [world] = await db.select().from(worlds).where(eq(worlds.id, worldId));
+  const world = await getWorldById(worldId);
   if (!world) return jsonError(404, "World not found");
-  const moodImages = await loadImages("world_mood", world.id);
-  return Response.json({ ...world, moodImages });
+  return Response.json(world);
 }
 
 export async function PATCH(req: Request, { params }: Ctx) {
@@ -23,21 +20,14 @@ export async function PATCH(req: Request, { params }: Ctx) {
   if (!parsed.success) {
     return jsonError(400, "Invalid input", parsed.error.flatten());
   }
-  const [updated] = await db
-    .update(worlds)
-    .set({ ...parsed.data, updatedAt: new Date() })
-    .where(eq(worlds.id, worldId))
-    .returning();
+  const updated = await updateWorld(worldId, parsed.data);
   if (!updated) return jsonError(404, "World not found");
   return Response.json(updated);
 }
 
 export async function DELETE(_req: Request, { params }: Ctx) {
   const { worldId } = await params;
-  const deleted = await db
-    .delete(worlds)
-    .where(eq(worlds.id, worldId))
-    .returning({ id: worlds.id });
-  if (deleted.length === 0) return jsonError(404, "World not found");
+  const success = await deleteWorld(worldId);
+  if (!success) return jsonError(404, "World not found");
   return new Response(null, { status: 204 });
 }

@@ -1,7 +1,5 @@
-import { desc, eq } from "drizzle-orm";
-import { db } from "@/db/client";
-import { aiCalls } from "@/db/schema";
 import { jsonError } from "@/lib/server";
+import { getAiCalls } from "@/lib/services/aiLogs";
 
 export const dynamic = "force-dynamic";
 
@@ -12,12 +10,7 @@ export async function GET(
   const { storyId } = await params;
   
   try {
-    const rows = await db
-      .select()
-      .from(aiCalls)
-      .where(eq(aiCalls.storyId, storyId))
-      .orderBy(desc(aiCalls.createdAt));
-      
+    const rows = await getAiCalls(storyId);
     return Response.json(rows);
   } catch (err: any) {
     return jsonError(500, err.message);

@@ -1,8 +1,9 @@
-import { NextResponse } from "next/server";
 import { db } from "@/db/client";
-import { songClips, videos } from "@/db/schema";
+import { videos } from "@/db/schema";
+import { and, eq } from "drizzle-orm";
 import { deleteObject } from "@/lib/storage";
-import { eq, and } from "drizzle-orm";
+import { jsonError } from "@/lib/server";
+import { updateClip, deleteClip } from "@/lib/services/clips";
 
 export async function PATCH(
   request: Request,
@@ -17,33 +18,23 @@ export async function PATCH(
     }>;
   },
 ) {
-  const { songId, clipId } = await params;
+  const { worldId, storyId, songId, clipId } = await params;
 
   try {
     const body = await request.json();
     const { description } = body;
 
     if (!description) {
-      return NextResponse.json({ error: "Missing description" }, { status: 400 });
+      return jsonError(400, "Missing description");
     }
 
-    const [updatedClip] = await db
-      .update(songClips)
-      .set({ description })
-      .where(and(eq(songClips.id, clipId), eq(songClips.songId, songId)))
-      .returning();
+    const updated = await updateClip(worldId, storyId, songId, clipId, { description });
+    if (!updated) return jsonError(404, "Clip not found");
 
-    if (!updatedClip) {
-      return NextResponse.json({ error: "Clip not found" }, { status: 404 });
-    }
-
-    return NextResponse.json(updatedClip);
+    return Response.json(updated);
   } catch (error) {
     console.error("Failed to update clip:", error);
-    return NextResponse.json(
-      { error: "Failed to update clip" },
-      { status: 500 },
-    );
+    return jsonError(500, "Failed to update clip");
   }
 }
 
@@ -60,18 +51,9 @@ export async function DELETE(
     }>;
   },
 ) {
-  const { songId, clipId } = await params;
+  const { worldId, storyId, songId, clipId } = await params;
 
   try {
-    const [existingClip] = await db
-      .select({ id: songClips.id })
-      .from(songClips)
-      .where(and(eq(songClips.id, clipId), eq(songClips.songId, songId)));
-
-    if (!existingClip) {
-      return NextResponse.json({ error: "Clip not found" }, { status: 404 });
-    }
-
     const clipVideos = await db
       .select()
       .from(videos)
@@ -83,10 +65,8 @@ export async function DELETE(
         .where(and(eq(videos.ownerKind, "song_clip"), eq(videos.ownerId, clipId)));
     }
 
-    const [deletedClip] = await db
-      .delete(songClips)
-      .where(and(eq(songClips.id, clipId), eq(songClips.songId, songId)))
-      .returning();
+    const deleted = await deleteClip(worldId, storyId, songId, clipId);
+    if (!deleted) return jsonError(404, "Clip not found");
 
     await Promise.all(
       clipVideos.map((video) =>
@@ -96,12 +76,9 @@ export async function DELETE(
       ),
     );
 
-    return NextResponse.json({ success: Boolean(deletedClip) });
+    return new Response(null, { status: 204 });
   } catch (error) {
     console.error("Failed to delete clip:", error);
-    return NextResponse.json(
-      { error: "Failed to delete clip" },
-      { status: 500 },
-    );
+    return jsonError(500, "Failed to delete clip");
   }
 }

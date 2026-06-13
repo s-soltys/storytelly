@@ -1,12 +1,14 @@
 import { eq, and } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db/client";
-import { stories, worlds, settings as settingsTable, storyMessages, characters, locations } from "@/db/schema";
+import { stories, worlds, settings as settingsTable, characters, locations } from "@/db/schema";
+import { getMessages, createMessage } from "@/lib/services/messages";
 import { generateLyrics } from "@/lib/ai/songScript";
 import { generateStorySong } from "@/lib/ai/song";
 import { callOpenRouter, OpenRouterError, type ChatMessage, type Tool } from "@/lib/ai/openrouter";
 import { getModelForTask } from "@/lib/ai/tasks";
 import { jsonError } from "@/lib/server";
+import { createAiCall } from "@/lib/services/aiLogs";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -73,20 +75,22 @@ export async function POST(req: Request, { params }: Ctx) {
   }
 
   // Insert User Message
-  await db.insert(storyMessages).values({
+  await createMessage({
     storyId,
     role: "user",
     content: message,
   });
 
   // Fetch History
-  const history = await db
-    .select()
-    .from(storyMessages)
-    .where(eq(storyMessages.storyId, storyId))
-    .orderBy(storyMessages.createdAt);
+  const history = await getMessages(storyId);
 
-  const systemPrompt = [
+  // Window history to last N messages to control context size
+  const WINDOW_SIZE = 30;
+  const windowed = history.length > WINDOW_SIZE 
+    ? history.slice(-WINDOW_SIZE)
+    : history;
+
+  let systemPrompt = [
     `You are an expert songwriter and creative partner. You are helping the user write a song in the world of "${world.name}".`,
     `World style: ${world.artStyle}`,
     `Story name: ${story.name}`,
@@ -99,11 +103,15 @@ export async function POST(req: Request, { params }: Ctx) {
     `Be conversational, creative, and lean into your expertise as a professional songwriter.`
   ].join("\n");
 
+  if (history.length > WINDOW_SIZE) {
+    systemPrompt += `\n\nThe conversation history has been trimmed to the last ${WINDOW_SIZE} messages for context management.`;
+  }
+
   const chatMessages: ChatMessage[] = [
     { role: "system", content: systemPrompt },
   ];
 
-  for (const msg of history) {
+  for (const msg of windowed) {
     if (msg.role === "user" || msg.role === "system") {
       chatMessages.push({ role: msg.role, content: msg.content || "" });
     } else if (msg.role === "assistant") {
@@ -122,6 +130,7 @@ export async function POST(req: Request, { params }: Ctx) {
   }
 
   try {
+    const callStart = Date.now();
     let result = await callOpenRouter({
       apiKey,
       model: getModelForTask("chat", config?.taskModels ?? {}),
@@ -130,8 +139,21 @@ export async function POST(req: Request, { params }: Ctx) {
       toolChoice: "auto",
     });
 
+    if (result.usage.costUsd != null || result.usage.promptTokens != null) {
+      await createAiCall({
+        worldId,
+        storyId,
+        task: "develop_chat",
+        model: getModelForTask("chat", config?.taskModels ?? {}),
+        prompt: message.slice(0, 500),
+        response: result.text?.slice(0, 1000) ?? null,
+        costUsd: result.usage.costUsd != null ? result.usage.costUsd.toString() : null,
+        durationMs: Date.now() - callStart,
+      }).catch(() => {});
+    }
+
     // Save assistant response
-    await db.insert(storyMessages).values({
+    await createMessage({
       storyId,
       role: "assistant",
       content: result.text || null,

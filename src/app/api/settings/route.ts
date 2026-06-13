@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { settings as settingsTable } from "@/db/schema";
+import { getSettings, updateSettings } from "@/lib/services/settings";
 import { settingsUpdateSchema } from "@/lib/validation";
 import { jsonError } from "@/lib/server";
 import { TASK_DEFAULTS } from "@/lib/ai/tasks";
@@ -10,10 +11,7 @@ export const dynamic = "force-dynamic";
 const SINGLETON_ID = 1;
 
 async function loadOrInit() {
-  const [row] = await db
-    .select()
-    .from(settingsTable)
-    .where(eq(settingsTable.id, SINGLETON_ID));
+  const row = await getSettings();
   if (row) return row;
   const [created] = await db
     .insert(settingsTable)
@@ -63,19 +61,7 @@ export async function PUT(req: Request) {
   }
   await loadOrInit();
 
-  const update: Record<string, unknown> = { updatedAt: new Date() };
-  if (parsed.data.openrouterApiKey !== undefined) {
-    update.openrouterApiKey = parsed.data.openrouterApiKey;
-  }
-  if (parsed.data.taskModels !== undefined) {
-    update.taskModels = parsed.data.taskModels;
-  }
-
-  const [row] = await db
-    .update(settingsTable)
-    .set(update)
-    .where(eq(settingsTable.id, SINGLETON_ID))
-    .returning();
+  const row = await updateSettings(parsed.data);
 
   return Response.json(dto(row!));
 }

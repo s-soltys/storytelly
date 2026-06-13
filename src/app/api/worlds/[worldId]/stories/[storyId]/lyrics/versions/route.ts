@@ -1,6 +1,7 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "@/db/client";
-import { stories, storyLyricsVersions } from "@/db/schema";
+import { stories } from "@/db/schema";
+import { getLyricsVersions } from "@/lib/services/lyricsVersions";
 import { jsonError } from "@/lib/server";
 
 export const dynamic = "force-dynamic";
@@ -19,11 +20,7 @@ export async function GET(_req: Request, { params }: Ctx) {
     return jsonError(404, "Story not found");
   }
 
-  const versions = await db
-    .select()
-    .from(storyLyricsVersions)
-    .where(eq(storyLyricsVersions.storyId, storyId))
-    .orderBy(desc(storyLyricsVersions.createdAt));
+  const versions = await getLyricsVersions(storyId);
 
   return Response.json(versions);
 }

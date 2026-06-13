@@ -2,11 +2,7 @@
 
 export type MessageRole = "system" | "user" | "assistant" | "tool";
 
-export type ToolCall = {
-  id: string;
-  type: "function";
-  function: { name: string; arguments: string };
-};
+import type { ToolCall } from "@/lib/ai/openrouter";
 
 export type ConversationMessage = {
   id: string;

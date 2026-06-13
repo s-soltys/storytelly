@@ -56,6 +56,7 @@ describe("server utilities", () => {
           mimeType: "image/png",
           width: 800,
           height: 600,
+          ownerId: "world-1",
         },
       ];
 
@@ -91,6 +92,7 @@ describe("server utilities", () => {
         mimeType: "image/png",
         width: 800,
         height: 600,
+        ownerId: "world-1",
       });
 
       expect(presignedGetUrlMock).toHaveBeenCalledWith("worlds/1/image.png");

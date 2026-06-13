@@ -368,7 +368,7 @@ export async function callOpenRouterVideo(args: {
     await wait(pollIntervalMs, args.signal);
     const poll = await fetch(resolveOpenRouterUrl(pollingUrl), {
       headers: { authorization: `Bearer ${args.apiKey}` },
-      signal: args.signal,
+    signal: args.signal ?? AbortSignal.timeout(30000),
     });
     const pollRaw = await poll.text();
     if (!poll.ok) {

@@ -74,6 +74,7 @@ export function StoryboardPreview({
           key={clipImage.url}
           src={clipImage.url}
           alt="Active storyboard clip"
+          loading="lazy"
           className="absolute inset-0 h-full w-full object-cover animate-in fade-in duration-500"
         />
       ) : /* 3. Fallback Section Text Card */

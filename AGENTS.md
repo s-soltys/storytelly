@@ -48,7 +48,9 @@ src/
 ## Conventions — read before changing code
 
 ### Data flow
-- Server reads/writes go through `db` from `@/db/client`. Don't open new postgres clients.
+- Server reads/writes should go through the **Service Layer** in `@/lib/services/...` instead of executing raw database queries directly in Next.js API route handlers.
+- Client queries must use the central **Query Key Factory** in `@/lib/queries` (`queryKeys`) instead of hardcoded string arrays to keep query cache keys consistent.
+- Image and media uploads must use the **direct-to-S3 upload flow** (requesting a presigned PUT URL from `/api/uploads/presign` and uploading directly) to bypass proxying files through API routes.
 - API routes return JSON. Use `jsonError(status, msg, details?)` from `@/lib/server` for errors.
 - Image responses must include **presigned GET URLs** (1h TTL) — the bucket is private. Use `loadImages(ownerKind, ownerId)`.
 - Client always goes through the `api` helper in `@/lib/api` so error parsing is consistent.

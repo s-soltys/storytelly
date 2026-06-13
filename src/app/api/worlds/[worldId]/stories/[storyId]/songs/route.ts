@@ -1,9 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { and, desc, eq } from "drizzle-orm";
-import { db } from "@/db/client";
-import { stories, storySongs } from "@/db/schema";
-import { deleteObject, presignedGetUrl, putObject } from "@/lib/storage";
+import { deleteObject, putObject } from "@/lib/storage";
 import { jsonError } from "@/lib/server";
+import { getSongs, createSong } from "@/lib/services/songs";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -13,55 +11,17 @@ const ALLOWED = ["audio/mpeg", "audio/mp3"];
 
 type Ctx = { params: Promise<{ worldId: string; storyId: string }> };
 
-async function storyExists(worldId: string, storyId: string) {
-  const [story] = await db
-    .select({ id: stories.id })
-    .from(stories)
-    .where(and(eq(stories.id, storyId), eq(stories.worldId, worldId)));
-  return Boolean(story);
-}
-
-async function songDto(row: typeof storySongs.$inferSelect) {
-  return {
-    id: row.id,
-    storyId: row.storyId,
-    name: row.name,
-    source: row.source,
-    url: await presignedGetUrl(row.s3Key),
-    s3Key: row.s3Key,
-    mimeType: row.mimeType,
-    sizeBytes: row.sizeBytes,
-    lengthSeconds: row.lengthSeconds,
-    lyrics: row.lyrics,
-    model: row.model,
-    transcript: row.transcript,
-    subtitles: row.subtitles,
-    sections: row.sections,
-    costUsd: row.costUsd,
-    archived: row.archived,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-  };
-}
-
 export async function GET(_req: Request, { params }: Ctx) {
   const { worldId, storyId } = await params;
-  if (!(await storyExists(worldId, storyId))) {
-    return jsonError(404, "Story not found");
-  }
-  const rows = await db
-    .select()
-    .from(storySongs)
-    .where(eq(storySongs.storyId, storyId))
-    .orderBy(storySongs.archived, desc(storySongs.createdAt));
-  return Response.json(await Promise.all(rows.map(songDto)));
+  const songs = await getSongs(worldId, storyId);
+  if (songs === null) return jsonError(404, "Story not found");
+  return Response.json(songs);
 }
 
 export async function POST(req: Request, { params }: Ctx) {
   const { worldId, storyId } = await params;
-  if (!(await storyExists(worldId, storyId))) {
-    return jsonError(404, "Story not found");
-  }
+  const songs = await getSongs(worldId, storyId);
+  if (songs === null) return jsonError(404, "Story not found");
 
   const form = await req.formData().catch(() => null);
   if (!form) return jsonError(400, "Expected multipart/form-data");
@@ -88,20 +48,17 @@ export async function POST(req: Request, { params }: Ctx) {
 
   await putObject(key, buf, "audio/mpeg");
   try {
-    const [row] = await db
-      .insert(storySongs)
-      .values({
-        storyId,
-        name,
-        source: "uploaded",
-        s3Key: key,
-        mimeType: "audio/mpeg",
-        sizeBytes: file.size,
-        lengthSeconds: !isNaN(Number(lengthSeconds)) ? lengthSeconds : null,
-        archived: false,
-      })
-      .returning();
-    return Response.json(await songDto(row), { status: 201 });
+    const song = await createSong({
+      storyId,
+      name,
+      source: "uploaded",
+      s3Key: key,
+      mimeType: "audio/mpeg",
+      sizeBytes: file.size,
+      lengthSeconds: !isNaN(Number(lengthSeconds)) ? lengthSeconds : null,
+      archived: false,
+    });
+    return Response.json(song, { status: 201 });
   } catch (err) {
     await deleteObject(key).catch(() => {});
     throw err;

@@ -55,6 +55,7 @@ export function ChatInput({ onSend, disabled, placeholder = "Type a message…" 
         disabled={disabled}
         placeholder={placeholder}
         rows={1}
+        aria-label="Message"
         className="flex-1 resize-none bg-transparent text-sm text-[var(--color-fg)] placeholder-[var(--color-muted)] outline-none"
         style={{ scrollbarWidth: "none" }}
       />

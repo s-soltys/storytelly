@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { api, type WorldDto } from "@/lib/api";
+import { queryKeys } from "@/lib/queries";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -16,7 +17,7 @@ import { SettingsPanel } from "@/components/SettingsPanel";
 
 export default function HomePage() {
   const { data, isLoading, error } = useQuery({
-    queryKey: ["worlds"],
+    queryKey: queryKeys.worlds.all(),
     queryFn: () => api.get<WorldDto[]>("/api/worlds"),
   });
 

@@ -3,7 +3,7 @@ import { settings as settingsTable, storySongs, aiCalls, songClips, type SongSec
 import { getObjectBuffer } from "@/lib/storage";
 import { eq } from "drizzle-orm";
 import { imageToDataUrl } from "./images";
-import { callOpenRouter, type ChatMessage, type ChatPart } from "./openrouter";
+import { callOpenRouter, transcribeAudio, type ChatMessage, type ChatPart } from "./openrouter";
 import { loadSongContext, serializePromptForStorage } from "./song";
 import { getModelForTask } from "./tasks";
 import { GenerationError } from "./songScript";
@@ -62,11 +62,12 @@ export async function transcribeSong(args: {
   ];
 
   const start = Date.now();
-  const result = await callOpenRouter({
+  const result = await transcribeAudio({
     apiKey,
     model,
-    messages,
-    maxTokens: 4000,
+    audioBase64,
+    format: "mp3",
+    signal: AbortSignal.timeout(120000),
   });
 
   const subtitles = extractSrt(result.text);
@@ -124,6 +125,8 @@ export async function analyzeSongStructure(args: {
     model,
     messages,
     maxTokens: 4000,
+    responseFormat: { type: "json_object" },
+    signal: AbortSignal.timeout(60000),
   });
 
   const { sections: initialSections } = parseStoryboardResponse(result.text);
@@ -149,6 +152,8 @@ export async function analyzeSongStructure(args: {
     model: textModel,
     messages: pass2Messages,
     maxTokens: 4000,
+    responseFormat: { type: "json_object" },
+    signal: AbortSignal.timeout(60000),
   });
 
   const finalSections = parseClipIdeasResponse(pass2Result.text, initialSections);
@@ -219,7 +224,7 @@ export function buildThematicAnalysisMessages(ctx: any, audioBase64: string, tot
     "2. EXACT ENDING: The last section's endSeconds MUST be exactly ${totalLength}.",
     "3. FULL COVERAGE: Zero gaps from 0 to ${totalLength}.",
     "4. ENTITY SELECTION: You MUST only use character names and location names from the provided lists below. Do not invent new characters or places.",
-    "5. FORMAT: Output a SINGLE JSON object with a \"sections\" array. You may include a brief thinking/analysis text BEFORE the JSON.",
+    "5. FORMAT: Output a SINGLE JSON object with a \"sections\" array.",
   ].join("\n");
 
   const user = [

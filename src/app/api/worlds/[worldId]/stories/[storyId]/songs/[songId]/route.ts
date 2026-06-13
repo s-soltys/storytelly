@@ -1,8 +1,7 @@
-import { and, eq } from "drizzle-orm";
-import { db } from "@/db/client";
-import { stories, storySongs } from "@/db/schema";
-import { deleteObject, presignedGetUrl } from "@/lib/storage";
+import { z } from "zod";
+import { deleteObject } from "@/lib/storage";
 import { jsonError } from "@/lib/server";
+import { getSongById, updateSong, deleteSong } from "@/lib/services/songs";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -11,64 +10,36 @@ type Ctx = {
   params: Promise<{ worldId: string; storyId: string; songId: string }>;
 };
 
-async function storyExists(worldId: string, storyId: string) {
-  const [story] = await db
-    .select({ id: stories.id })
-    .from(stories)
-    .where(and(eq(stories.id, storyId), eq(stories.worldId, worldId)));
-  return Boolean(story);
-}
-
-async function songDto(row: typeof storySongs.$inferSelect) {
-  return {
-    ...row,
-    url: await presignedGetUrl(row.s3Key),
-  };
-}
+const songUpdateSchema = z.object({
+  name: z.string().trim().min(1).max(120).optional(),
+  archived: z.boolean().optional(),
+});
 
 export async function GET(_req: Request, { params }: Ctx) {
   const { worldId, storyId, songId } = await params;
-  if (!(await storyExists(worldId, storyId))) {
-    return jsonError(404, "Story not found");
-  }
-  const [song] = await db
-    .select()
-    .from(storySongs)
-    .where(and(eq(storySongs.id, songId), eq(storySongs.storyId, storyId)));
-  if (!song) return jsonError(404, "Song not found");
-  return Response.json(await songDto(song));
+  const song = await getSongById(worldId, storyId, songId);
+  if (song === null) return jsonError(404, "Song not found");
+  return Response.json(song);
 }
 
 export async function PATCH(req: Request, { params }: Ctx) {
   const { worldId, storyId, songId } = await params;
-  if (!(await storyExists(worldId, storyId))) {
-    return jsonError(404, "Story not found");
-  }
   const body = await req.json().catch(() => null);
   if (!body || typeof body !== "object") {
     return jsonError(400, "Expected JSON body");
   }
 
-  const [updated] = await db
-    .update(storySongs)
-    .set({ ...body, updatedAt: new Date() })
-    .where(and(eq(storySongs.id, songId), eq(storySongs.storyId, storyId)))
-    .returning();
+  const parsed = songUpdateSchema.safeParse(body);
+  if (!parsed.success) return jsonError(400, "Invalid fields", parsed.error.flatten());
 
+  const updated = await updateSong(worldId, storyId, songId, parsed.data);
   if (!updated) return jsonError(404, "Song not found");
-  return Response.json(await songDto(updated));
+  return Response.json(updated);
 }
 
 export async function DELETE(_req: Request, { params }: Ctx) {
   const { worldId, storyId, songId } = await params;
-  if (!(await storyExists(worldId, storyId))) {
-    return jsonError(404, "Story not found");
-  }
-  const [row] = await db
-    .delete(storySongs)
-    .where(and(eq(storySongs.id, songId), eq(storySongs.storyId, storyId)))
-    .returning({ s3Key: storySongs.s3Key });
-  if (!row) return jsonError(404, "Song not found");
-  await deleteObject(row.s3Key).catch(() => {});
+  const deleted = await deleteSong(worldId, storyId, songId);
+  if (!deleted) return jsonError(404, "Song not found");
   return new Response(null, { status: 204 });
 }

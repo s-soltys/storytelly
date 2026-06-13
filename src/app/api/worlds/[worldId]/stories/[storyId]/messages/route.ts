@@ -1,6 +1,7 @@
 import { eq, and } from "drizzle-orm";
 import { db } from "@/db/client";
-import { stories, storyMessages } from "@/db/schema";
+import { stories } from "@/db/schema";
+import { getMessages } from "@/lib/services/messages";
 import { jsonError } from "@/lib/server";
 
 type Ctx = { params: Promise<{ worldId: string; storyId: string }> };
@@ -16,11 +17,7 @@ export async function GET(req: Request, { params }: Ctx) {
     .where(and(eq(stories.id, storyId), eq(stories.worldId, worldId)));
   if (!story) return jsonError(404, "Story not found");
 
-  const messages = await db
-    .select()
-    .from(storyMessages)
-    .where(eq(storyMessages.storyId, storyId))
-    .orderBy(storyMessages.createdAt);
+  const messages = await getMessages(storyId);
 
   return Response.json(messages, { status: 200 });
 }

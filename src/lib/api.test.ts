@@ -16,7 +16,7 @@ describe("API client wrapper", () => {
     vi.mocked(fetch).mockResolvedValue(mockResponse as Response);
 
     const result = await api.get("/api/worlds");
-    expect(fetch).toHaveBeenCalledWith("/api/worlds", { cache: "no-store" });
+    expect(fetch).toHaveBeenCalledWith("/api/worlds");
     expect(result).toEqual(mockData);
   });
 

@@ -136,9 +136,6 @@ describe("NamedEntityForms", () => {
     it("deletes entity and redirects back to world on delete click", async () => {
       vi.mocked(api.get).mockResolvedValue(mockCharacter);
       vi.mocked(api.del).mockResolvedValue({});
-      
-      // Mock window.confirm
-      const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
 
       renderWithProviders(<EditNamedEntityForm kind="character" worldId="world-1" entityId="char-1" />);
 
@@ -151,7 +148,10 @@ describe("NamedEntityForms", () => {
 
       await userEvent.click(deleteButton!);
 
-      expect(confirmSpy).toHaveBeenCalledWith("Delete this character?");
+      // Click the ConfirmDialog confirm button
+      const confirmBtn = screen.getByRole("button", { name: "Delete" });
+      await userEvent.click(confirmBtn);
+
       await waitFor(() => {
         expect(api.del).toHaveBeenCalledWith("/api/worlds/world-1/characters/char-1");
         expect(mockPush).toHaveBeenCalledWith("/worlds/world-1");

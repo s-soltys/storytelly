@@ -11,7 +11,7 @@ interface SectionCardProps {
   isActive: boolean;
   clips: SongClipDto[];
   clipGenStates: Record<string, { type: "image" | "video"; status: "pending" | "success" | "error"; error?: string }>;
-  onUpdateSection: (index: number, field: keyof SongSectionDto, value: any) => void;
+  onUpdateSection: (index: number, field: keyof SongSectionDto, value: string) => void;
   onAddClip: (index: number) => void;
   onUpdateClipDescription: (clipId: string, desc: string) => void;
   onDeleteClip: (clipId: string) => void;

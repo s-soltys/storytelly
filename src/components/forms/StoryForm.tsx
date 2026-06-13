@@ -14,10 +14,12 @@ import {
   type StoryDto,
   type StoryLyricsVersionDto,
 } from "@/lib/api";
+import { queryKeys } from "@/lib/queries";
 import { Button } from "@/components/ui/button";
 import { Input, Textarea } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ImageUploader } from "@/components/ImageUploader";
+import { ConfirmDialog } from "@/components/ui/dialog";
 import { StorySongsPanel } from "@/components/StorySongsPanel";
 import { ArrowLeft, ImageIcon, Terminal, Trash2, History, ChevronDown, ChevronUp } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -77,17 +79,17 @@ export function StoryForm(props: Mode) {
   const { worldId } = props;
 
   const chars = useQuery({
-    queryKey: ["characters", worldId],
+    queryKey: queryKeys.world.characters(worldId),
     queryFn: () =>
       api.get<CharacterDto[]>(`/api/worlds/${worldId}/characters`),
   });
   const locs = useQuery({
-    queryKey: ["locations", worldId],
+    queryKey: queryKeys.world.locations(worldId),
     queryFn: () => api.get<LocationDto[]>(`/api/worlds/${worldId}/locations`),
   });
 
   const existing = useQuery({
-    queryKey: ["story", props.kind === "edit" ? props.storyId : null],
+    queryKey: queryKeys.story.detail(props.kind === "edit" ? props.storyId : null),
     enabled: props.kind === "edit",
     queryFn: () =>
       api.get<StoryDto>(
@@ -98,7 +100,7 @@ export function StoryForm(props: Mode) {
   });
 
   const songs = useQuery({
-    queryKey: ["story-songs", props.kind === "edit" ? props.storyId : null],
+    queryKey: queryKeys.story.songs(props.kind === "edit" ? props.storyId : null),
     enabled: props.kind === "edit",
     queryFn: () =>
       api.get<import("@/lib/api").StorySongDto[]>(
@@ -131,10 +133,11 @@ export function StoryForm(props: Mode) {
   const savedValues = useRef<StoryCreate | null>(null);
   const saveVersion = useRef(0);
 
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [instructions, setInstructions] = useState("");
 
   const versions = useQuery({
-    queryKey: ["story-lyrics-versions", props.kind === "edit" ? props.storyId : null],
+    queryKey: queryKeys.story.lyricsVersions(props.kind === "edit" ? props.storyId : null),
     enabled: props.kind === "edit",
     queryFn: () =>
       api.get<StoryLyricsVersionDto[]>(
@@ -155,8 +158,8 @@ export function StoryForm(props: Mode) {
       setValue("lyrics", data.lyrics);
       setInstructions("");
       if (props.kind === "edit") {
-        qc.invalidateQueries({ queryKey: ["story", props.storyId] });
-        qc.invalidateQueries({ queryKey: ["story-lyrics-versions", props.storyId] });
+        qc.invalidateQueries({ queryKey: queryKeys.story.detail(props.storyId) });
+        qc.invalidateQueries({ queryKey: queryKeys.story.lyricsVersions(props.storyId) });
       }
     },
   });
@@ -189,15 +192,15 @@ export function StoryForm(props: Mode) {
           `/api/worlds/${worldId}/stories`,
           values,
         );
-        qc.invalidateQueries({ queryKey: ["stories", worldId] });
+        qc.invalidateQueries({ queryKey: queryKeys.world.stories(worldId) });
         router.push(`/worlds/${worldId}/stories/${created.id}`);
       } else {
         await api.patch(
           `/api/worlds/${worldId}/stories/${props.storyId}`,
           values,
         );
-        qc.invalidateQueries({ queryKey: ["stories", worldId] });
-        qc.invalidateQueries({ queryKey: ["story", props.storyId] });
+        qc.invalidateQueries({ queryKey: queryKeys.world.stories(worldId) });
+        qc.invalidateQueries({ queryKey: queryKeys.story.detail(props.storyId) });
       }
     } catch (e) {
       setError("root", { message: (e as Error).message });
@@ -212,7 +215,7 @@ export function StoryForm(props: Mode) {
         }`,
       ),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["stories", worldId] });
+      qc.invalidateQueries({ queryKey: queryKeys.world.stories(worldId) });
       router.push(`/worlds/${worldId}`);
     },
   });
@@ -261,7 +264,7 @@ export function StoryForm(props: Mode) {
         if (saveVersion.current !== version) return;
 
         savedValues.current = parsed.data;
-        qc.setQueryData(["story", props.storyId], (prev: StoryDto | undefined) =>
+        qc.setQueryData(queryKeys.story.detail(props.storyId), (prev: StoryDto | undefined) =>
           prev
             ? {
                 ...prev,
@@ -276,7 +279,7 @@ export function StoryForm(props: Mode) {
               }
             : prev,
         );
-        qc.setQueryData(["stories", worldId], (prev: StoryDto[] | undefined) =>
+        qc.setQueryData(queryKeys.world.stories(worldId), (prev: StoryDto[] | undefined) =>
           prev?.map((story) =>
             story.id === props.storyId
               ? {
@@ -291,7 +294,7 @@ export function StoryForm(props: Mode) {
               : story,
           ),
         );
-        qc.invalidateQueries({ queryKey: ["story-lyrics-versions", props.storyId] });
+        qc.invalidateQueries({ queryKey: queryKeys.story.lyricsVersions(props.storyId) });
         setSaveState("saved");
       } catch (e) {
         if (saveVersion.current !== version) return;
@@ -321,9 +324,7 @@ export function StoryForm(props: Mode) {
           {props.kind === "edit" && (
             <Button
               variant="danger"
-              onClick={() => {
-                if (confirm("Delete this story?")) del.mutate();
-              }}
+              onClick={() => setDeleteOpen(true)}
               disabled={del.isPending}
               size="icon"
               className="h-9 w-9"
@@ -601,7 +602,7 @@ export function StoryForm(props: Mode) {
               <ImageUploader
                 ownerKind="story_mood"
                 ownerId={props.storyId}
-                initial={existing.data.moodImages ?? []}
+                images={existing.data.moodImages ?? []}
                 compact
               />
             </div>
@@ -631,11 +632,25 @@ export function StoryForm(props: Mode) {
           selectedSongId={existing.data.selectedSongId}
           onStoryUpdate={(updates) => {
             api.patch(`/api/worlds/${worldId}/stories/${props.storyId}`, updates).then(() => {
-              qc.invalidateQueries({ queryKey: ["story", props.storyId] });
+              qc.invalidateQueries({ queryKey: queryKeys.story.detail(props.storyId) });
             });
           }}
         />
       )}
+
+      <ConfirmDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        title="Delete this story?"
+        description="This action cannot be undone. All songs and data will be permanently removed."
+        confirmLabel="Delete"
+        variant="danger"
+        onConfirm={() => {
+          del.mutate();
+          setDeleteOpen(false);
+        }}
+        loading={del.isPending}
+      />
     </div>
   );
 }
@@ -695,6 +710,8 @@ function LyricsHistoryPanel({
   onRestore: (lyrics: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [restoreOpen, setRestoreOpen] = useState(false);
+  const [pendingRestore, setPendingRestore] = useState<string | null>(null);
 
   return (
     <div className="rounded-[var(--radius-control)] border border-[var(--color-border)]/50 bg-[var(--color-surface-2)]/10 p-2.5">
@@ -734,9 +751,8 @@ function LyricsHistoryPanel({
                 variant="ghost"
                 className="h-6 px-2 text-[9px] uppercase font-mono tracking-wider text-[var(--color-accent)] hover:bg-[var(--color-surface-2)] cursor-pointer"
                 onClick={() => {
-                  if (confirm("Restore this version? Unsaved changes will be overwritten.")) {
-                    onRestore(ver.lyrics);
-                  }
+                  setPendingRestore(ver.lyrics);
+                  setRestoreOpen(true);
                 }}
               >
                 Restore
@@ -745,6 +761,23 @@ function LyricsHistoryPanel({
           ))}
         </div>
       )}
+
+      <ConfirmDialog
+        open={restoreOpen}
+        onOpenChange={(open) => {
+          setRestoreOpen(open);
+          if (!open) setPendingRestore(null);
+        }}
+        title="Restore this version?"
+        description="Unsaved changes will be overwritten."
+        confirmLabel="Restore"
+        variant="primary"
+        onConfirm={() => {
+          if (pendingRestore !== null) onRestore(pendingRestore);
+          setRestoreOpen(false);
+          setPendingRestore(null);
+        }}
+      />
     </div>
   );
 }

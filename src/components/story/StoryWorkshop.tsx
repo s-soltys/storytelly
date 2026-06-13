@@ -14,6 +14,7 @@ import {
   type StoryLyricsVersionDto,
   type StorySongDto,
 } from "@/lib/api";
+import { queryKeys } from "@/lib/queries";
 import { Button } from "@/components/ui/button";
 import { ConversationThread } from "./ConversationThread";
 import { ChatInput } from "./ChatInput";
@@ -34,33 +35,33 @@ export function StoryWorkshop({ worldId, storyId }: StoryWorkshopProps) {
 
   // ── Queries ──────────────────────────────────────────────────────────────
   const storyQ = useQuery({
-    queryKey: ["story", storyId],
+    queryKey: queryKeys.story.detail(storyId),
     queryFn: () => api.get<StoryDto>(`/api/worlds/${worldId}/stories/${storyId}`),
   });
   const charsQ = useQuery({
-    queryKey: ["characters", worldId],
+    queryKey: queryKeys.world.characters(worldId),
     queryFn: () => api.get<CharacterDto[]>(`/api/worlds/${worldId}/characters`),
   });
   const locsQ = useQuery({
-    queryKey: ["locations", worldId],
+    queryKey: queryKeys.world.locations(worldId),
     queryFn: () => api.get<LocationDto[]>(`/api/worlds/${worldId}/locations`),
   });
   const versionsQ = useQuery({
-    queryKey: ["story-lyrics-versions", storyId],
+    queryKey: queryKeys.story.lyricsVersions(storyId),
     queryFn: () =>
       api.get<StoryLyricsVersionDto[]>(
         `/api/worlds/${worldId}/stories/${storyId}/lyrics/versions`,
       ),
   });
   const messagesQ = useQuery({
-    queryKey: ["story-messages", storyId],
+    queryKey: queryKeys.story.messages(storyId),
     queryFn: () =>
       api.get<ConversationMessage[]>(
         `/api/worlds/${worldId}/stories/${storyId}/messages`,
       ),
   });
   const songsQ = useQuery({
-    queryKey: ["story-songs", storyId],
+    queryKey: queryKeys.story.songs(storyId),
     queryFn: () =>
       api.get<StorySongDto[]>(`/api/worlds/${worldId}/stories/${storyId}/songs`),
   });
@@ -96,9 +97,9 @@ export function StoryWorkshop({ worldId, storyId }: StoryWorkshopProps) {
           await api.patch(`/api/worlds/${worldId}/stories/${storyId}`, updates);
           if (saveVersion.current !== version) return;
           setSaveState("saved");
-          qc.invalidateQueries({ queryKey: ["story", storyId] });
-          qc.invalidateQueries({ queryKey: ["story-lyrics-versions", storyId] });
-          qc.invalidateQueries({ queryKey: ["stories", worldId] });
+          qc.invalidateQueries({ queryKey: queryKeys.story.detail(storyId) });
+          qc.invalidateQueries({ queryKey: queryKeys.story.lyricsVersions(storyId) });
+          qc.invalidateQueries({ queryKey: queryKeys.world.stories(worldId) });
         } catch {
           if (saveVersion.current !== version) return;
           setSaveState("error");
@@ -117,7 +118,7 @@ export function StoryWorkshop({ worldId, storyId }: StoryWorkshopProps) {
   const del = useMutation({
     mutationFn: () => api.del<void>(`/api/worlds/${worldId}/stories/${storyId}`),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["stories", worldId] });
+      qc.invalidateQueries({ queryKey: queryKeys.world.stories(worldId) });
       router.push(`/worlds/${worldId}`);
     },
   });
@@ -149,11 +150,11 @@ export function StoryWorkshop({ worldId, storyId }: StoryWorkshopProps) {
       );
 
       // Invalidate to fetch fresh messages from the DB (which now include user, assistant, tools)
-      await qc.invalidateQueries({ queryKey: ["story-messages", storyId] });
+      await qc.invalidateQueries({ queryKey: queryKeys.story.messages(storyId) });
       if (res.toolsExecuted) {
-        await qc.invalidateQueries({ queryKey: ["story", storyId] });
-        await qc.invalidateQueries({ queryKey: ["story-lyrics-versions", storyId] });
-        await qc.invalidateQueries({ queryKey: ["stories", worldId] });
+        await qc.invalidateQueries({ queryKey: queryKeys.story.detail(storyId) });
+        await qc.invalidateQueries({ queryKey: queryKeys.story.lyricsVersions(storyId) });
+        await qc.invalidateQueries({ queryKey: queryKeys.world.stories(worldId) });
       }
 
       if (res.lyrics) {
@@ -193,11 +194,11 @@ export function StoryWorkshop({ worldId, storyId }: StoryWorkshopProps) {
         body,
       );
 
-      await qc.invalidateQueries({ queryKey: ["story-messages", storyId] });
+      await qc.invalidateQueries({ queryKey: queryKeys.story.messages(storyId) });
       if (res.toolsExecuted) {
-        await qc.invalidateQueries({ queryKey: ["story", storyId] });
-        await qc.invalidateQueries({ queryKey: ["story-lyrics-versions", storyId] });
-        await qc.invalidateQueries({ queryKey: ["stories", worldId] });
+        await qc.invalidateQueries({ queryKey: queryKeys.story.detail(storyId) });
+        await qc.invalidateQueries({ queryKey: queryKeys.story.lyricsVersions(storyId) });
+        await qc.invalidateQueries({ queryKey: queryKeys.world.stories(worldId) });
       }
 
       if (res.lyrics) {

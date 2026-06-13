@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type SettingsDto } from "@/lib/api";
+import { queryKeys } from "@/lib/queries";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -18,7 +19,7 @@ import { Eye, EyeOff, KeyRound, Trash2 } from "lucide-react";
 export function SettingsPanel() {
   const qc = useQueryClient();
   const settings = useQuery({
-    queryKey: ["settings"],
+    queryKey: queryKeys.settings.all(),
     queryFn: () => api.get<SettingsDto>("/api/settings"),
   });
 
@@ -30,7 +31,7 @@ export function SettingsPanel() {
     mutationFn: (apiKey: string | null) =>
       api.put<SettingsDto>("/api/settings", { openrouterApiKey: apiKey }),
     onSuccess: (data) => {
-      qc.setQueryData(["settings"], data);
+      qc.setQueryData(queryKeys.settings.all(), data);
       setKeyInput("");
       setSavedNote(data.openrouterApiKeyConfigured ? "Saved." : "Cleared.");
     },

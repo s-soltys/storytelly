@@ -13,6 +13,7 @@ cp .env.example .env       # local-only credentials, no real secrets
 docker compose up -d       # postgres on :5432, minio on :9000 (api) / :9001 (console)
 npm install
 npm run db:migrate         # apply the committed schema
+npm run db:seed            # seed database with initial demo data
 npm run dev                # http://localhost:3000
 ```
 
@@ -75,3 +76,27 @@ S3_BUCKET=...
 - Likely provider: OpenRouter
 
 See [AGENTS.md](AGENTS.md) for conventions and constraints when contributing.
+
+## System Architecture & AI Pipeline
+
+Below is a diagram illustrating the data flow between components in Storytelly when generating or uploading resources:
+
+```mermaid
+graph TD
+    Client[Browser Client]
+    NextServer[Next.js App Server]
+    Postgres[(PostgreSQL DB)]
+    MinIO[(S3 / MinIO Storage)]
+    OpenRouter[OpenRouter API]
+
+    Client -->|1. Request Presigned URL| NextServer
+    NextServer -->|2. Register Pending Record| Postgres
+    NextServer -->|3. Return Presigned URL| Client
+    Client -->|4. Put Object directly| MinIO
+    
+    Client -->|Generate Music / Lyrics| NextServer
+    NextServer -->|Call LLM / Music Model| OpenRouter
+    OpenRouter -->|Return Media / Text| NextServer
+    NextServer -->|Store Metadata| Postgres
+    NextServer -->|Save Audio file| MinIO
+```

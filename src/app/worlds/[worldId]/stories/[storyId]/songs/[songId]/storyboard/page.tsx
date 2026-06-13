@@ -3,6 +3,7 @@
 import { useParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type StorySongDto, type SongSectionDto, type SongClipDto, type VideoDto } from "@/lib/api";
+import { queryKeys } from "@/lib/queries";
 import { Loader2 } from "lucide-react";
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { StoryboardToolbar } from "./StoryboardToolbar";
@@ -25,7 +26,7 @@ export default function StoryboardPage() {
   const [isPollingClips, setIsPollingClips] = useState(false);
 
   const songQuery = useQuery({
-    queryKey: ["story-songs", songId],
+    queryKey: queryKeys.story.songs(songId),
     queryFn: () =>
       api.get<StorySongDto>(`/api/worlds/${worldId}/stories/${storyId}/songs/${songId}`),
     staleTime: 30 * 60 * 1000,
@@ -34,7 +35,7 @@ export default function StoryboardPage() {
   const song = songQuery.data;
 
   const clipsQuery = useQuery({
-    queryKey: ["story-songs", songId, "clips"],
+    queryKey: queryKeys.story.songClips(songId),
     queryFn: () =>
       api.get<SongClipDto[]>(`/api/worlds/${worldId}/stories/${storyId}/songs/${songId}/clips`),
     enabled: !!song,
@@ -47,7 +48,7 @@ export default function StoryboardPage() {
     mutationFn: () =>
       api.post<{ count: number }>(`/api/worlds/${worldId}/stories/${storyId}/songs/${songId}/clips/generate-all-images`, {}),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["story-songs", songId, "clips"] });
+      qc.invalidateQueries({ queryKey: queryKeys.story.songClips(songId) });
     },
   });
 
@@ -55,7 +56,7 @@ export default function StoryboardPage() {
     mutationFn: (clipId: string) =>
       api.post<{ url: string }>(`/api/worlds/${worldId}/stories/${storyId}/songs/${songId}/clips/${clipId}/generate-image`, {}),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["story-songs", songId, "clips"] });
+      qc.invalidateQueries({ queryKey: queryKeys.story.songClips(songId) });
     },
   });
 
@@ -63,7 +64,7 @@ export default function StoryboardPage() {
     mutationFn: (clipId: string) =>
       api.post<VideoDto>(`/api/worlds/${worldId}/stories/${storyId}/songs/${songId}/clips/${clipId}/generate-video`, {}),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["story-songs", songId, "clips"] });
+      qc.invalidateQueries({ queryKey: queryKeys.story.songClips(songId) });
     },
   });
 
@@ -71,7 +72,7 @@ export default function StoryboardPage() {
     mutationFn: (body: { sectionIndex: number; description: string }) =>
       api.post<SongClipDto>(`/api/worlds/${worldId}/stories/${storyId}/songs/${songId}/clips`, body),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["story-songs", songId, "clips"] });
+      qc.invalidateQueries({ queryKey: queryKeys.story.songClips(songId) });
     },
   });
 
@@ -79,7 +80,7 @@ export default function StoryboardPage() {
     mutationFn: ({ id, description }: { id: string; description: string }) =>
       api.patch<SongClipDto>(`/api/worlds/${worldId}/stories/${storyId}/songs/${songId}/clips/${id}`, { description }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["story-songs", songId, "clips"] });
+      qc.invalidateQueries({ queryKey: queryKeys.story.songClips(songId) });
     },
   });
 
@@ -87,7 +88,7 @@ export default function StoryboardPage() {
     mutationFn: (id: string) =>
       api.del(`/api/worlds/${worldId}/stories/${storyId}/songs/${songId}/clips/${id}`),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["story-songs", songId, "clips"] });
+      qc.invalidateQueries({ queryKey: queryKeys.story.songClips(songId) });
     },
   });
 
@@ -95,8 +96,8 @@ export default function StoryboardPage() {
     mutationFn: (body: Partial<StorySongDto>) =>
       api.patch(`/api/worlds/${worldId}/stories/${storyId}/songs/${songId}`, body),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["story-songs", songId] });
-      qc.invalidateQueries({ queryKey: ["story-songs", storyId] });
+      qc.invalidateQueries({ queryKey: queryKeys.story.songs(songId) });
+      qc.invalidateQueries({ queryKey: queryKeys.story.songs(storyId) });
     },
   });
 
@@ -104,9 +105,9 @@ export default function StoryboardPage() {
     mutationFn: () =>
       api.post(`/api/worlds/${worldId}/stories/${storyId}/songs/${songId}/analyze`, {}),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["story-songs", songId] });
-      qc.invalidateQueries({ queryKey: ["story-songs", storyId] });
-      qc.invalidateQueries({ queryKey: ["story-songs", songId, "clips"] });
+      qc.invalidateQueries({ queryKey: queryKeys.story.songs(songId) });
+      qc.invalidateQueries({ queryKey: queryKeys.story.songs(storyId) });
+      qc.invalidateQueries({ queryKey: queryKeys.story.songClips(songId) });
     },
   });
 
@@ -114,8 +115,8 @@ export default function StoryboardPage() {
     mutationFn: () =>
       api.post(`/api/worlds/${worldId}/stories/${storyId}/songs/${songId}/transcribe`, {}),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["story-songs", songId] });
-      qc.invalidateQueries({ queryKey: ["story-songs", storyId] });
+      qc.invalidateQueries({ queryKey: queryKeys.story.songs(songId) });
+      qc.invalidateQueries({ queryKey: queryKeys.story.songs(storyId) });
     },
   });
 
@@ -228,7 +229,7 @@ export default function StoryboardPage() {
     transcribe.mutate();
   }, [song, transcribe]);
 
-  const handleUpdateSection = useCallback((index: number, field: keyof SongSectionDto, value: any) => {
+  const handleUpdateSection = useCallback((index: number, field: keyof SongSectionDto, value: string) => {
     setSections((prev) => {
       const next = [...prev];
       next[index] = { ...next[index], [field]: value };

@@ -52,6 +52,22 @@ export async function presignedGetUrl(
   );
 }
 
+export async function presignedPutUrl(
+  key: string,
+  contentType: string,
+  ttlSec = 3600,
+): Promise<string> {
+  return getSignedUrl(
+    s3,
+    new PutObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      ContentType: contentType,
+    }),
+    { expiresIn: ttlSec },
+  );
+}
+
 export async function deleteObject(key: string): Promise<void> {
   await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
 }

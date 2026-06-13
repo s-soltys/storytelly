@@ -3,6 +3,7 @@
 import { useParams, usePathname } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { api, type WorldDto } from "@/lib/api";
+import { queryKeys } from "@/lib/queries";
 import { StageRail, type StageRailItem } from "@/components/StageRail";
 
 export default function WorldLayout({
@@ -16,7 +17,7 @@ export default function WorldLayout({
   const isWorldRoot = pathname === `/worlds/${worldId}`;
 
   const world = useQuery({
-    queryKey: ["world", worldId],
+    queryKey: queryKeys.world.detail(worldId),
     queryFn: () => api.get<WorldDto>(`/api/worlds/${worldId}`),
     enabled: !isWorldRoot,
   });

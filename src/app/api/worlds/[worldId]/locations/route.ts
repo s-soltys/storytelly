@@ -1,8 +1,9 @@
-import { asc, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db } from "@/db/client";
-import { locations, worlds } from "@/db/schema";
+import { worlds } from "@/db/schema";
+import { getLocations, createLocation } from "@/lib/services/locations";
 import { locationCreateSchema } from "@/lib/validation";
-import { isUniqueViolation, jsonError, loadImages } from "@/lib/server";
+import { isUniqueViolation, jsonError } from "@/lib/server";
 
 export const dynamic = "force-dynamic";
 
@@ -10,14 +11,7 @@ type Ctx = { params: Promise<{ worldId: string }> };
 
 export async function GET(_req: Request, { params }: Ctx) {
   const { worldId } = await params;
-  const rows = await db
-    .select()
-    .from(locations)
-    .where(eq(locations.worldId, worldId))
-    .orderBy(asc(locations.name));
-  const result = await Promise.all(
-    rows.map(async (l) => ({ ...l, images: await loadImages("location", l.id) })),
-  );
+  const result = await getLocations(worldId);
   return Response.json(result);
 }
 
@@ -32,10 +26,7 @@ export async function POST(req: Request, { params }: Ctx) {
     return jsonError(400, "Invalid input", parsed.error.flatten());
   }
   try {
-    const [created] = await db
-      .insert(locations)
-      .values({ ...parsed.data, worldId })
-      .returning();
+    const created = await createLocation(worldId, parsed.data);
     return Response.json(created, { status: 201 });
   } catch (err) {
     if (isUniqueViolation(err)) {

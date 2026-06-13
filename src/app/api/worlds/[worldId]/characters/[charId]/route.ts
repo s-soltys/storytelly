@@ -1,8 +1,6 @@
-import { and, eq } from "drizzle-orm";
-import { db } from "@/db/client";
-import { characters } from "@/db/schema";
 import { characterUpdateSchema } from "@/lib/validation";
-import { jsonError, loadImages } from "@/lib/server";
+import { jsonError } from "@/lib/server";
+import { getCharacterById, updateCharacter, deleteCharacter } from "@/lib/services/characters";
 
 export const dynamic = "force-dynamic";
 
@@ -10,12 +8,9 @@ type Ctx = { params: Promise<{ worldId: string; charId: string }> };
 
 export async function GET(_req: Request, { params }: Ctx) {
   const { worldId, charId } = await params;
-  const [row] = await db
-    .select()
-    .from(characters)
-    .where(and(eq(characters.id, charId), eq(characters.worldId, worldId)));
+  const row = await getCharacterById(worldId, charId);
   if (!row) return jsonError(404, "Character not found");
-  return Response.json({ ...row, images: await loadImages("character", row.id) });
+  return Response.json(row);
 }
 
 export async function PATCH(req: Request, { params }: Ctx) {
@@ -25,21 +20,14 @@ export async function PATCH(req: Request, { params }: Ctx) {
   if (!parsed.success) {
     return jsonError(400, "Invalid input", parsed.error.flatten());
   }
-  const [updated] = await db
-    .update(characters)
-    .set({ ...parsed.data, updatedAt: new Date() })
-    .where(and(eq(characters.id, charId), eq(characters.worldId, worldId)))
-    .returning();
+  const updated = await updateCharacter(worldId, charId, parsed.data);
   if (!updated) return jsonError(404, "Character not found");
   return Response.json(updated);
 }
 
 export async function DELETE(_req: Request, { params }: Ctx) {
   const { worldId, charId } = await params;
-  const deleted = await db
-    .delete(characters)
-    .where(and(eq(characters.id, charId), eq(characters.worldId, worldId)))
-    .returning({ id: characters.id });
-  if (deleted.length === 0) return jsonError(404, "Character not found");
+  const deleted = await deleteCharacter(worldId, charId);
+  if (!deleted) return jsonError(404, "Character not found");
   return new Response(null, { status: 204 });
 }

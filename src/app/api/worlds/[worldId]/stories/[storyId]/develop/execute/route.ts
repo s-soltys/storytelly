@@ -1,12 +1,14 @@
 import { eq, and } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db/client";
-import { stories, worlds, settings as settingsTable, storyMessages } from "@/db/schema";
+import { stories, worlds, settings as settingsTable } from "@/db/schema";
+import { getMessages, createMessage } from "@/lib/services/messages";
 import { generateLyrics } from "@/lib/ai/songScript";
 import { generateStorySong } from "@/lib/ai/song";
 import { callOpenRouter, OpenRouterError, type ChatMessage } from "@/lib/ai/openrouter";
 import { getModelForTask } from "@/lib/ai/tasks";
 import { jsonError } from "@/lib/server";
+import { createAiCall } from "@/lib/services/aiLogs";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -45,11 +47,13 @@ export async function POST(req: Request, { params }: Ctx) {
   }
 
   // Fetch History to find the tool call
-  const history = await db
-    .select()
-    .from(storyMessages)
-    .where(eq(storyMessages.storyId, storyId))
-    .orderBy(storyMessages.createdAt);
+  const history = await getMessages(storyId);
+
+  // Window history to last N messages to control context size
+  const WINDOW_SIZE = 30;
+  const windowed = history.length > WINDOW_SIZE 
+    ? history.slice(-WINDOW_SIZE)
+    : history;
 
   // Find the assistant message containing this toolCallId
   let targetCall: any = null;
@@ -108,7 +112,7 @@ export async function POST(req: Request, { params }: Ctx) {
   }
 
   // Save the tool message
-  await db.insert(storyMessages).values({
+  await createMessage({
     storyId,
     role: "tool",
     content: toolResult,
@@ -116,7 +120,7 @@ export async function POST(req: Request, { params }: Ctx) {
   });
 
   // Now we need to ask the LLM to summarize the execution
-  const systemPrompt = [
+  let systemPrompt = [
     `You are an expert songwriter and creative partner. You are helping the user write a song in the world of "${world.name}".`,
     `World style: ${world.artStyle}`,
     `Story name: ${story.name}`,
@@ -129,13 +133,17 @@ export async function POST(req: Request, { params }: Ctx) {
     `Be conversational, creative, and lean into your expertise as a professional songwriter.`
   ].join("\n");
 
+  if (history.length > WINDOW_SIZE) {
+    systemPrompt += `\n\nThe conversation history has been trimmed to the last ${WINDOW_SIZE} messages for context management.`;
+  }
+
   const chatMessages: ChatMessage[] = [
     { role: "system", content: systemPrompt },
   ];
 
   // Rebuild the history for the LLM
   // Note: we need to include the freshly saved tool message too
-  for (const msg of history) {
+  for (const msg of windowed) {
     if (msg.role === "user" || msg.role === "system") {
       chatMessages.push({ role: msg.role, content: msg.content || "" });
     } else if (msg.role === "assistant") {
@@ -160,6 +168,7 @@ export async function POST(req: Request, { params }: Ctx) {
   });
 
   try {
+    const callStart = Date.now();
     const result = await callOpenRouter({
       apiKey,
       model: getModelForTask("chat", config?.taskModels ?? {}),
@@ -167,7 +176,20 @@ export async function POST(req: Request, { params }: Ctx) {
       // tools: TOOLS, // Not providing tools on the summarize step to prevent infinite loops, or provide them so it can call again? Usually we provide them.
     });
 
-    await db.insert(storyMessages).values({
+    if (result.usage.costUsd != null || result.usage.promptTokens != null) {
+      await createAiCall({
+        worldId,
+        storyId,
+        task: "develop_chat",
+        model: getModelForTask("chat", config?.taskModels ?? {}),
+        prompt: `${targetCall.function.name} ${targetCall.function.arguments?.slice(0, 400) ?? ""}`,
+        response: result.text?.slice(0, 1000) ?? null,
+        costUsd: result.usage.costUsd != null ? result.usage.costUsd.toString() : null,
+        durationMs: Date.now() - callStart,
+      }).catch(() => {});
+    }
+
+    await createMessage({
       storyId,
       role: "assistant",
       content: result.text || null,

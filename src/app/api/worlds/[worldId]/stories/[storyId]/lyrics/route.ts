@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { db } from "@/db/client";
-import { stories, storyLyricsVersions } from "@/db/schema";
+import { stories } from "@/db/schema";
+import { createLyricsVersion } from "@/lib/services/lyricsVersions";
 import { generateLyrics, GenerationError } from "@/lib/ai/songScript";
 import { OpenRouterError } from "@/lib/ai/openrouter";
 import { jsonError } from "@/lib/server";
@@ -46,21 +47,19 @@ export async function POST(req: Request, { params }: Ctx) {
     const isRegenerating = Boolean(story.lyrics && story.lyrics.trim());
     const promptText = instructions?.trim() || (isRegenerating ? "Re-generate lyrics" : "Generate lyrics");
 
-    await db.transaction(async (tx) => {
-      await tx
-        .update(stories)
-        .set({
-          lyrics: result.lyrics,
-          lengthSeconds: lengthSeconds ?? story.lengthSeconds,
-          updatedAt: new Date(),
-        })
-        .where(eq(stories.id, storyId));
-
-      await tx.insert(storyLyricsVersions).values({
-        storyId,
+    await db
+      .update(stories)
+      .set({
         lyrics: result.lyrics,
-        prompt: promptText,
-      });
+        lengthSeconds: lengthSeconds ?? story.lengthSeconds,
+        updatedAt: new Date(),
+      })
+      .where(eq(stories.id, storyId));
+
+    await createLyricsVersion({
+      storyId,
+      lyrics: result.lyrics,
+      prompt: promptText,
     });
 
     return Response.json(result, { status: 201 });

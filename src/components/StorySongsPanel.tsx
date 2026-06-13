@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { useRef, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type StorySongDto } from "@/lib/api";
+import { queryKeys } from "@/lib/queries";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Archive, Music, Upload, RotateCw } from "lucide-react";
@@ -32,7 +33,7 @@ export function StorySongsPanel({
         {},
       ),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["story-songs", storyId] });
+      qc.invalidateQueries({ queryKey: queryKeys.story.songs(storyId) });
     },
   });
 
@@ -65,7 +66,7 @@ export function StorySongsPanel({
     onSuccess: () => {
       setUploadName("");
       if (inputRef.current) inputRef.current.value = "";
-      qc.invalidateQueries({ queryKey: ["story-songs", storyId] });
+      qc.invalidateQueries({ queryKey: queryKeys.story.songs(storyId) });
     },
   });
 
@@ -76,7 +77,7 @@ export function StorySongsPanel({
         { archived: true },
       ),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["story-songs", storyId] });
+      qc.invalidateQueries({ queryKey: queryKeys.story.songs(storyId) });
     },
   });
 

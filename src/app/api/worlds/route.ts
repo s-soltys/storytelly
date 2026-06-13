@@ -1,19 +1,11 @@
-import { desc } from "drizzle-orm";
-import { db } from "@/db/client";
-import { worlds } from "@/db/schema";
 import { worldCreateSchema } from "@/lib/validation";
-import { jsonError, loadImages } from "@/lib/server";
+import { jsonError } from "@/lib/server";
+import { getWorlds, createWorld } from "@/lib/services/worlds";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const rows = await db.select().from(worlds).orderBy(desc(worlds.createdAt));
-  const result = await Promise.all(
-    rows.map(async (w) => ({
-      ...w,
-      moodImages: await loadImages("world_mood", w.id),
-    })),
-  );
+  const result = await getWorlds();
   return Response.json(result);
 }
 
@@ -23,6 +15,6 @@ export async function POST(req: Request) {
   if (!parsed.success) {
     return jsonError(400, "Invalid input", parsed.error.flatten());
   }
-  const [created] = await db.insert(worlds).values(parsed.data).returning();
+  const created = await createWorld(parsed.data);
   return Response.json(created, { status: 201 });
 }

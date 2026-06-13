@@ -212,7 +212,6 @@ describe("StoryForm", () => {
 
     it("deletes story and redirects on trash click", async () => {
       vi.mocked(api.del).mockResolvedValue({});
-      const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
 
       renderWithProviders(<StoryForm kind="edit" worldId="world-1" storyId={storyUuid} />);
 
@@ -224,7 +223,10 @@ describe("StoryForm", () => {
       const trashBtn = screen.getByRole("button", { name: "" });
       await userEvent.click(trashBtn);
 
-      expect(confirmSpy).toHaveBeenCalledWith("Delete this story?");
+      // Click the ConfirmDialog confirm button
+      const confirmBtn = screen.getByRole("button", { name: "Delete" });
+      await userEvent.click(confirmBtn);
+
       await waitFor(() => {
         expect(api.del).toHaveBeenCalledWith(`/api/worlds/world-1/stories/${storyUuid}`);
         expect(mockPush).toHaveBeenCalledWith("/worlds/world-1");

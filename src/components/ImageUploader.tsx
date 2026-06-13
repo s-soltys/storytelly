@@ -10,7 +10,7 @@ import { Trash2, Upload } from "lucide-react";
 type Props = {
   ownerKind: ImageOwnerKind;
   ownerId: string;
-  initial?: ImageDto[];
+  images?: ImageDto[];
   onChange?: (images: ImageDto[]) => void;
   compact?: boolean;
 };
@@ -18,35 +18,80 @@ type Props = {
 export function ImageUploader({
   ownerKind,
   ownerId,
-  initial = [],
+  images = [],
   onChange,
   compact = false,
 }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [uploadingFiles, setUploadingFiles] = useState<Set<string>>(new Set());
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // We derive the actual items displayed from the initial prop directly
-  // so it always stays in sync with React Query when it gets invalidated.
-  const items = initial;
+  const items = images;
 
-  async function handleFiles(files: FileList | null) {
-    if (!files || files.length === 0) return;
+  async function uploadFiles(files: File[]) {
+    const MAX_SIZE = 15 * 1024 * 1024;
+    const valid: File[] = [];
+    for (const file of files) {
+      if (file.size > MAX_SIZE) {
+        console.warn(`File ${file.name} exceeds 15MB limit`);
+        continue;
+      }
+      if (!file.type.startsWith("image/")) {
+        console.warn(`File ${file.name} is not an image`);
+        continue;
+      }
+      valid.push(file);
+    }
+    if (valid.length === 0) return;
+
     setError(null);
     setBusy(true);
+    const names = valid.map((f) => f.name);
+    setUploadingFiles((prev) => new Set([...prev, ...names]));
     try {
-      const form = new FormData();
-      form.append("ownerKind", ownerKind);
-      form.append("ownerId", ownerId);
-      for (const file of Array.from(files)) form.append("files", file);
-      const created = await api.upload<ImageDto[]>("/api/uploads", form);
-      onChange?.([...items, ...created]);
+      const uploaded: ImageDto[] = await Promise.all(
+        valid.map(async (file) => {
+          const presign = await api.post<{ uploadUrl: string; image: ImageDto }>(
+            "/api/uploads/presign",
+            {
+              ownerKind,
+              ownerId,
+              fileType: file.type,
+              fileSize: file.size,
+            },
+          );
+          const res = await fetch(presign.uploadUrl, {
+            method: "PUT",
+            headers: {
+              "Content-Type": file.type,
+            },
+            body: file,
+          });
+          if (!res.ok) {
+            throw new Error(`S3 upload failed for ${file.name}`);
+          }
+          return presign.image;
+        }),
+      );
+      onChange?.([...items, ...uploaded]);
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setBusy(false);
+      setUploadingFiles((prev) => {
+        const next = new Set(prev);
+        names.forEach((n) => next.delete(n));
+        return next;
+      });
       if (inputRef.current) inputRef.current.value = "";
     }
+  }
+
+  async function handleFiles(files: FileList | null) {
+    if (!files || files.length === 0) return;
+    await uploadFiles(Array.from(files));
   }
 
   async function remove(id: string) {
@@ -59,12 +104,39 @@ export function ImageUploader({
     }
   }
 
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length > 0) {
+      uploadFiles(files);
+    }
+  };
+
   return (
-    <div className={cn("space-y-3", compact && "space-y-2")}>
+    <div
+      className={cn("space-y-3 relative", compact && "space-y-2")}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
       <div
         className={cn(
           "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3",
-          compact && "grid-cols-4 sm:grid-cols-5 md:grid-cols-4 gap-2",
+          compact && "grid-cols-4 sm:grid-cols-5 md:grid-cols-6 gap-2",
         )}
       >
         {items.map((img) => (
@@ -79,6 +151,7 @@ export function ImageUploader({
             <img
               src={img.url}
               alt=""
+              loading="lazy"
               className="h-full w-full object-cover"
             />
             <button
@@ -110,10 +183,23 @@ export function ImageUploader({
               compact && "text-[10px]",
             )}
           >
-            {busy ? "Uploading…" : "Add"}
+            {busy ? `Uploading ${uploadingFiles.size}…` : "Add"}
           </span>
         </button>
       </div>
+      {uploadingFiles.size > 0 && (
+        <div className="space-y-1">
+          {Array.from(uploadingFiles).map((name) => (
+            <div
+              key={name}
+              className="flex items-center gap-2 text-xs text-[var(--color-muted)]"
+            >
+              <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-[var(--color-accent)] border-t-transparent" />
+              {name}
+            </div>
+          ))}
+        </div>
+      )}
       <input
         ref={inputRef}
         type="file"
@@ -124,6 +210,13 @@ export function ImageUploader({
       />
       {error && (
         <p className="text-sm text-[var(--color-danger)]">{error}</p>
+      )}
+      {isDragging && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center rounded-lg border-2 border-dashed border-[var(--color-accent)] bg-[var(--color-accent)]/10">
+          <p className="text-sm font-mono uppercase tracking-widest text-[var(--color-accent)]">
+            Drop images here
+          </p>
+        </div>
       )}
     </div>
   );

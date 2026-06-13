@@ -1,8 +1,9 @@
-import { NextResponse } from "next/server";
 import { db } from "@/db/client";
-import { songClips, images, videos } from "@/db/schema";
-import { eq, asc, inArray, and, max } from "drizzle-orm";
+import { songClips, videos } from "@/db/schema";
+import { and, eq, inArray, max } from "drizzle-orm";
 import { presignedGetUrl } from "@/lib/storage";
+import { jsonError } from "@/lib/server";
+import { getClips, createClip } from "@/lib/services/clips";
 
 export async function GET(
   request: Request,
@@ -12,27 +13,16 @@ export async function GET(
     params: Promise<{ worldId: string; storyId: string; songId: string }>;
   },
 ) {
-  const { songId } = await params;
+  const { worldId, storyId, songId } = await params;
 
   try {
-    const clips = await db
-      .select()
-      .from(songClips)
-      .where(eq(songClips.songId, songId))
-      .orderBy(asc(songClips.sectionIndex), asc(songClips.position));
+    const clips = await getClips(worldId, storyId, songId);
+    if (clips === null) return jsonError(404, "Song not found");
 
     const clipIds = clips.map(c => c.id);
-    let allImages: typeof images.$inferSelect[] = [];
     let allVideos: typeof videos.$inferSelect[] = [];
 
     if (clipIds.length > 0) {
-      allImages = await db
-        .select()
-        .from(images)
-        .where(
-          inArray(images.ownerId, clipIds)
-        );
-
       allVideos = await db
         .select()
         .from(videos)
@@ -40,15 +30,6 @@ export async function GET(
     }
 
     const clipsWithMedia = await Promise.all(clips.map(async (clip) => {
-      const clipImages = allImages
-        .filter(img => img.ownerId === clip.id && img.ownerKind === 'song_clip')
-        .sort((a, b) => b.position - a.position);
-
-      const hydratedImages = await Promise.all(clipImages.map(async (img) => ({
-        ...img,
-        url: await presignedGetUrl(img.s3Key),
-      })));
-
       const clipVideos = allVideos
         .filter(vid => vid.ownerId === clip.id && vid.ownerKind === 'song_clip')
         .sort((a, b) => b.position - a.position);
@@ -60,18 +41,14 @@ export async function GET(
 
       return {
         ...clip,
-        images: hydratedImages,
         videos: hydratedVideos,
       };
     }));
 
-    return NextResponse.json(clipsWithMedia);
+    return Response.json(clipsWithMedia);
   } catch (error) {
     console.error("Failed to fetch song clips:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch song clips" },
-      { status: 500 },
-    );
+    return jsonError(500, "Failed to fetch song clips");
   }
 }
 
@@ -90,7 +67,7 @@ export async function POST(
     const { sectionIndex, description } = body;
     
     if (sectionIndex === undefined || !description) {
-      return NextResponse.json({ error: "Missing sectionIndex or description" }, { status: 400 });
+      return jsonError(400, "Missing sectionIndex or description");
     }
 
     const [{ value: maxPos }] = await db
@@ -100,22 +77,16 @@ export async function POST(
       
     const position = (maxPos ?? -1) + 1;
 
-    const [newClip] = await db
-      .insert(songClips)
-      .values({
-        songId,
-        sectionIndex,
-        description,
-        position,
-      })
-      .returning();
+    const newClip = await createClip({
+      songId,
+      sectionIndex,
+      description,
+      position,
+    });
 
-    return NextResponse.json(newClip, { status: 201 });
+    return Response.json(newClip, { status: 201 });
   } catch (error) {
     console.error("Failed to create song clip:", error);
-    return NextResponse.json(
-      { error: "Failed to create song clip" },
-      { status: 500 },
-    );
+    return jsonError(500, "Failed to create song clip");
   }
 }

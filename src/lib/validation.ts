@@ -59,6 +59,7 @@ export const imageOwnerKindSchema = z.enum([
   "character",
   "location",
   "story_mood",
+  "song_clip",
 ]);
 
 export const settingsUpdateSchema = z.object({

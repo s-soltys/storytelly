@@ -14,6 +14,12 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
+export type ToolCall = {
+  id: string;
+  type: "function";
+  function: { name: string; arguments: string };
+};
+
 const timestamps = {
   createdAt: timestamp("created_at", { withTimezone: true })
     .defaultNow()
@@ -23,13 +29,19 @@ const timestamps = {
     .notNull(),
 };
 
-export const worlds = pgTable("worlds", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  name: text("name").notNull(),
-  artStyle: text("art_style").notNull(),
-  description: text("description").notNull(),
-  ...timestamps,
-});
+export const worlds = pgTable(
+  "worlds",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    artStyle: text("art_style").notNull(),
+    description: text("description").notNull(),
+    ...timestamps,
+  },
+  (t) => [
+    index("worlds_created_idx").on(t.createdAt.desc()),
+  ],
+);
 
 export const characters = pgTable(
   "characters",
@@ -74,6 +86,7 @@ export const stories = pgTable(
     ...timestamps,
   },
   (t) => [
+    index("stories_world_idx").on(t.worldId),
     check(
       "stories_length_seconds_check",
       sql`${t.lengthSeconds} % 15 = 0 AND ${t.lengthSeconds} BETWEEN 30 AND 180`,
@@ -167,6 +180,7 @@ export const storySongs = pgTable(
     mimeType: text("mime_type").notNull().default("audio/mpeg"),
     sizeBytes: integer("size_bytes"),
     lengthSeconds: integer("length_seconds"),
+    /** Snapshot captured at generation time. Authoritative lyrics live on `stories.lyrics`. */
     lyrics: text("lyrics"),
     model: text("model"),
     prompt: text("prompt"),
@@ -278,27 +292,39 @@ export const storyMessages = pgTable(
       .references(() => stories.id, { onDelete: "cascade" }),
     role: text("role", { enum: ["system", "user", "assistant", "tool"] }).notNull(),
     content: text("content"),
-    toolCalls: jsonb("tool_calls"), // [{ id, type, function: { name, arguments } }]
+    toolCalls: jsonb("tool_calls").$type<ToolCall[]>(),
     toolCallId: text("tool_call_id"), // if role is tool
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
   },
   (t) => [
-    index("story_messages_story_idx").on(t.storyId, t.createdAt.asc()),
-  ],
-);
+        index("story_messages_story_idx").on(t.storyId, t.createdAt.asc()),
+      ],
+    );
+
+
 
 export type World = typeof worlds.$inferSelect;
 export type NewWorld = typeof worlds.$inferInsert;
 export type Character = typeof characters.$inferSelect;
+export type NewCharacter = typeof characters.$inferInsert;
 export type Location = typeof locations.$inferSelect;
+export type NewLocation = typeof locations.$inferInsert;
 export type Story = typeof stories.$inferSelect;
+export type NewStory = typeof stories.$inferInsert;
 export type Image = typeof images.$inferSelect;
+export type NewImage = typeof images.$inferInsert;
 export type Settings = typeof settings.$inferSelect;
 export type StorySong = typeof storySongs.$inferSelect;
+export type NewStorySong = typeof storySongs.$inferInsert;
 export type SongClip = typeof songClips.$inferSelect;
+export type NewSongClip = typeof songClips.$inferInsert;
 export type Video = typeof videos.$inferSelect;
+export type NewVideo = typeof videos.$inferInsert;
 export type AiCall = typeof aiCalls.$inferSelect;
+export type NewAiCall = typeof aiCalls.$inferInsert;
 export type StoryLyricsVersion = typeof storyLyricsVersions.$inferSelect;
+export type NewStoryLyricsVersion = typeof storyLyricsVersions.$inferInsert;
 export type StoryMessage = typeof storyMessages.$inferSelect;
+export type NewStoryMessage = typeof storyMessages.$inferInsert;
